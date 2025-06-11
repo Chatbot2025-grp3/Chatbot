@@ -1,203 +1,300 @@
-
-# radicalization_terms_complete.py
-RADICALIZATION_PHRASES = set([
-    # Hate speech and racist phrases
-    "contaminate", "evil", "dark skin", "race war", "white genocide", "88", "14 words",
-    "they must be removed", "our blood is pure", "traitors to the people",
-    "cleansing the streets", "globalist agenda", "ZOG", "replacement theory",
-    # Codes and symbols
-    "18", "88", "666", "black sun", "reich flag", "totenkopf", "hh", "heil hitler",
-    "5g causes cancer", "climate lie", "plandemic", "nwo", "deepstate",
-    # Extremist slogans
-    "no taxes for the system", "stop the great replacement", "deportation now",
-    "gates virus", "resistance now", "mainstream lies", "groomer agenda",
-    # Violence encouragement or ideology
-    "violence is the only answer", "reclaim our land", "fight the enemy within",
-    "cleanse our streets", "ban islam", "fight multiculturalism",
-    # Antisemitic and conspiracy
-    "freemasons rule us", "jewish agenda", "zionist puppet", "world bank scam",
-    "they control the media", "global control through fear", "soros control"
-])
-
-
-
-REJECTION_PATTERNS = [
-    "i cannot provide", 
-    "i'm not able to help", 
-    "please contact emergency services", 
-    "i can't assist with that", 
-    "this content violates", 
-    "i'm not allowed to", 
-    "my apologies, but i cannot"
-]
-
-def sanitize_response(response: str, fallback: str) -> str:
-    lower = response.lower()
-    if any(p in lower for p in REJECTION_PATTERNS):
-        return fallback
-    return response.strip()
-
-
 import os
 import re
-from typing import List, Dict
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
+import pandas as pd
+import nltk
+import uuid
+import json
+from datetime import datetime
 from dotenv import load_dotenv
 from transformers import pipeline
-import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_openai import ChatOpenAI
 
+# Load .env and NLTK data
 load_dotenv()
-nltk.download("vader_lexicon")
+try:
+    nltk.data.find("sentiment/vader_lexicon")
+except LookupError:
+    nltk.download("vader_lexicon")
 
 API_KEY = os.getenv("CHAT_AI_ACCESS_KEY")
 
-PROMPTS = {
-    "en": "You are a calm, non-judgmental chatbot based in Germany. Help users share concerns about troubling behavior changes. Respond empathetically in English.",
-    "de": "Du bist ein ruhiger, nicht wertender Chatbot aus Deutschland. Unterstütze Nutzer beim Beschreiben besorgniserregender Verhaltensänderungen. Antworte einfühlsam auf Deutsch."
+REJECTION_PATTERNS = ["i cannot", "i'm not allowed", "i'm unable", "this violates", "please contact emergency services"]
+RADICALIZATION_CODES = ["88", "18", "23", "444", "888", "222111", "black sun", "swastika", "reich", "totenkopf", "celtic cross"]
+
+INITIAL_PROMPTS = {
+    "en": {
+        "choose_language": "Choose language (English/Deutsch):",
+        "enter_language": "Language: ",
+        "enter_region": "📍 What's your region? (e.g. berlin, nrw, bremen):",
+        "describe_concern": "💬 This chat-bot is here to assist you in investigating any worries you may have regarding someone exhibiting early indications of radicalization, particularly in the direction of right-wing extremism. It is intended to be sympathetic, anonymous, and nonjudgmental. (type 'exit' to quit):"
+    },
+    "de": {
+        "choose_language": "Wähle Sprache (English/Deutsch):",
+        "enter_language": "Sprache: ",
+        "enter_region": "📍 Was ist deine Region? (z.B. berlin, nrw, bremen):",
+        "describe_concern": "💬 Dieser Chatbot soll Ihnen dabei helfen, Ihre Bedenken hinsichtlich einer Person zu untersuchen, die erste Anzeichen einer Radikalisierung zeigt, insbesondere in Richtung Rechtsextremismus. Er soll einfühlsam, anonym und vorurteilsfrei sein.(Tippe 'exit' zum Beenden):"
+    }
 }
 
-def extract_first_question(text):
-    lines = re.split(r'[\n\r]+', text.strip())
-    for line in lines:
-        if '?' in line:
-            return line.strip()
-    return lines[0].strip() if lines else ""
+def sanitize_response(response: str, fallback: str, previous: str) -> str:
+    if any(p in response.lower() for p in REJECTION_PATTERNS):
+        return "Can you tell me how this started, or when you first noticed the change?" if fallback == previous else fallback
+    return response.strip()
 
-def is_valid_response(text):
+def contains_embedded_code(text: str) -> bool:
     lower = text.lower()
-    if "how can i assist" in lower or "is there anything else" in lower:
-        return False
-    if '?' not in text:
-        return False
-    if len(text.strip()) > 300:
-        return False
-    return True
+    return any(code in lower for code in RADICALIZATION_CODES)
 
-class RadicalizationAgent:
-    def __init__(self):
+def is_generic_behavioral_change(message: str, sentiment: dict) -> bool:
+    lower = message.lower()
+    generic_keywords = [
+        "not hungry", "upset", "frustrated", "didn't get recognition", "sits alone",
+        "won’t eat", "won’t talk", "lost motivation", "doesn't join", "withdrawn"
+    ]
+    emotional = sentiment["compound"] <= -0.5
+    return any(k in lower for k in generic_keywords) and not contains_embedded_code(lower)
+
+class RadicalizationBot:
+    def __init__(self, session_id=None):
+        if session_id is None:
+            session_id = str(uuid.uuid4())
+        self.session_id = session_id
         self.language = "en"
         self.region = "default"
-        self.chat_history: List[str] = []
+        self.chat_history = []
+        self.observed_flags = []
         self.conversation_depth = 0
-        self.asked_topics: List[str] = []
-        self.current_relationship = "this person"
-        self.relationship_set = False
-        self.has_concerning_content = False
-        self.llm = ChatOpenAI(
+        self.max_depth = 6
+        self.last_bot_response = ""
+        self.log_file = "/app/logs/bot_session_logs.jsonl"
+
+        self.model = ChatOpenAI(
             model="meta-llama-3.1-8b-instruct",
             temperature=0.5,
             openai_api_key=API_KEY,
-            openai_api_base="https://chat-ai.academiccloud.de/v1",
+            openai_api_base="https://chat-ai.academiccloud.de/v1"
         )
-        self.classifier = pipeline("text-classification", model="facebook/roberta-hate-speech-dynabench-r4-target")
+
         self.sentiment_analyzer = SentimentIntensityAnalyzer()
-        self.min_conversation_depth = 6
-        self.max_silence_threshold = 2
+        self.hate_classifier = pipeline("text-classification", model="facebook/roberta-hate-speech-dynabench-r4-target")
 
-    def is_relevant_input(self, message: str) -> bool:
-        message_lower = message.lower()
-        if any(term in message_lower for term in RADICALIZATION_PHRASES):
+        # Load support data from Excel
+        excel_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "region based support.xlsx")
+        self.region_support_data = self.load_support_data_from_excel(excel_path)
+
+    def load_support_data_from_excel(self, filepath):
+        try:
+            df = pd.read_excel(filepath)
+            support_dict = {}
+            for _, row in df.iterrows():
+                region_key = str(row['Bundesland']).strip().lower()
+                website = str(row.get('Internetauftritt', '')).strip()
+                contact_info = str(row.get('Kontaktmöglichkeiten', '')).strip()
+
+                email_match = re.search(r"[\w\.-]+@[\w\.-]+", contact_info)
+                phone_match = re.search(r"Tel\.:?\s*([+\d\s\(\)-]+)", contact_info)
+
+                support_dict[region_key] = {
+                    "website": website,
+                    "email": email_match.group(0) if email_match else "",
+                    "phone": phone_match.group(1).strip() if phone_match else ""
+                }
+            return support_dict
+        except Exception as e:
+            print(f"Error loading support data: {e}")
+            return {
+                "default": {
+                    "website": "https://www.exit-deutschland.de",
+                    "email": "helppreventradicalization@gmail.com",
+                    "phone": "+49 000 0000000"
+                }
+            }
+
+    def set_language(self, lang):
+        self.language = "de" if lang.lower() in ["de", "deutsch", "german"] else "en"
+
+    def set_region(self, region):
+        self.region = region.lower().strip()
+
+    def validate_region(self, user_region):
+        normalized = user_region.lower().strip()
+        if normalized in self.region_support_data:
+            self.region = normalized
             return True
-        score = self.sentiment_analyzer.polarity_scores(message)
-        result = self.classifier(message)[0]
-        return result['label'].lower() == 'hateful' or score['compound'] <= -0.5
-
-    def set_language(self, lang: str):
-        if lang.lower() in ["de", "german", "deutsch"]:
-            self.language = "de"
         else:
-            self.language = "en"
+            print(f"Region '{user_region}' not recognized, defaulting to general support.")
+            self.region = "default"
+            return True
 
-    def set_region(self, region: str):
-        self.region = region.strip().lower()
+    def is_irrelevant(self, message: str) -> bool:
+        return message.lower() in ["hi", "hello", "bye", "how are you", "i am a disco dancer"] or len(message.strip()) < 5
 
-    def get_support_links(self) -> List[str]:
-        region_links = {
-            "berlin": ["https://mbr-berlin.de", "info@mbr-berlin.de"],
-            "bremen": ["https://sichtwechsel-bremen.de", "kontakt@sichtwechsel-bremen.de"],
-            "nrw": ["https://www.nrwgegendradikal.de"],
-            "bundesweit": ["https://www.exit-deutschland.de", "helppreventradicalization@gmail.com"]
+    def analyze_input(self, message: str):
+        sentiment = self.sentiment_analyzer.polarity_scores(message)
+        try:
+            hate = self.hate_classifier(message)[0]
+        except Exception:
+            hate = {"label": "neutral", "score": 0.0}
+        if contains_embedded_code(message):
+            self.observed_flags.append("symbolic_code")
+        return sentiment, hate
+
+    def assess_risk(self, sentiment, hate, message):
+        score = 0
+        if hate["label"].lower() in ["hateful", "hate speech"]:
+            self.observed_flags.append("hate")
+            score += 2
+        if sentiment["compound"] <= -0.5:
+            if "negative_sentiment" not in self.observed_flags:
+                self.observed_flags.append("negative_sentiment")
+            score = min(score + 1, score)
+        if contains_embedded_code(message):
+            self.observed_flags.append("symbolic_code")
+            score += 2
+        if is_generic_behavioral_change(message, sentiment):
+            self.observed_flags.append("non_radical_behavior")
+            return "low"
+        if score >= 3 and any(flag in self.observed_flags for flag in ["hate", "symbolic_code"]):
+            return "high"
+        elif score >= 2:
+            return "moderate"
+        else:
+            return "low"
+
+    def get_referral_message(self, risk_level):
+        support = self.region_support_data.get(self.region, self.region_support_data.get("default"))
+        website = support.get("website", "")
+        email = support.get("email", "")
+        phone = support.get("phone", "")
+
+        if risk_level in ["low", "moderate"]:
+            return f"Please consider these support options:\n- Website: {website}\n- Email: {email}"
+        elif risk_level == "high":
+            return f"Immediate help is recommended. Contact:\n- Email: {email}\n- Phone: {phone}"
+        else:
+            return "Please consider reaching out to professional support if needed."
+
+    def final_decision(self, risk_level):
+        referral_msg = self.get_referral_message(risk_level)
+        closing_msg = {
+            "en": (
+                "\n\nYou did the right thing by not looking away."
+                "\nIf you want to add anything later, I’m here."
+                "\nHere is another link with information on how to recognize radicalization."
+            ),
+            "de": (
+                "\n\nDu hast das Richtige getan, indem du nicht weggeschaut hast."
+                "\nWenn du später noch etwas hinzufügen möchtest, bin ich hier."
+                "\nHier ist ein weiterer Link mit Informationen, wie man Radikalisierung erkennt."
+            )
+        }[self.language]
+
+        if risk_level == "high":
+            return {
+                "en": f"This may be serious. {referral_msg}{closing_msg}",
+                "de": f"Das klingt ernst. {referral_msg}{closing_msg}"
+            }[self.language]
+        else:
+            return {
+                "en": f"Thank you for sharing. {referral_msg}{closing_msg}",
+                "de": f"Danke für deine Offenheit. {referral_msg}{closing_msg}"
+            }[self.language]
+
+    def log_interaction(self, user_input, bot_response, risk_level):
+        log_entry = {
+            "session_id": self.session_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "language": self.language,
+            "region": self.region,
+            "user_input": user_input,
+            "bot_response": bot_response,
+            "risk_level": risk_level,
+            "observed_flags": self.observed_flags.copy()
         }
-        return region_links.get(self.region, region_links["bundesweit"])
+        try:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_entry) + "\n")
+        except Exception as e:
+            print(f"Logging error: {e}")
 
-    def _detect_relationship(self, text: str) -> str:
-        relationships = {
-            "en": ["friend", "brother", "sister", "father", "mother", "partner", "colleague", "uncle", "neighbor"],
-            "de": ["freund", "bruder", "schwester", "vater", "mutter", "partner", "kollege", "onkel", "nachbar"]
-        }
-        text = text.lower()
-        for term in relationships[self.language]:
-            if term in text:
-                self.current_relationship = term
-                self.relationship_set = True
-                return term
-        return self.current_relationship
+    def get_response(self, user_input):
+        if self.is_irrelevant(user_input):
+            response = {
+                "en": "I’m here to support you. Can you describe what made you concerned?",
+                "de": "Ich bin für dich da. Magst du erzählen, was dir Sorgen macht?"
+            }[self.language]
+            self.log_interaction(user_input, response, "none")
+            return response
 
-    def follow_up_brain(self, user_input: str) -> str:
-        follow_up_bank = [
-            ("violence", "What specific actions or statements have you observed?"),
-            ("hate_speech", "Has the person used derogatory terms or hate speech?"),
-            ("group_involvement", "Has there been any involvement with new groups or communities?"),
-            ("behavior_change", "How has this behavior affected their daily life or relationships?"),
-            ("planning", "Have there been any signs of preparation for violence or self-harm?"),
-            ("language_shift", "Have you noticed a change in their language or how they talk about others?"),
-            ("online_activity", "Are they spending more time online or visiting questionable forums?"),
-            ("appearance", "Have they changed their appearance, dress, or symbols they use?")
-        ]
-        user_input_lower = user_input.lower()
-        self._detect_relationship(user_input)
+        sentiment, hate = self.analyze_input(user_input)
+        risk_level = self.assess_risk(sentiment, hate, user_input)
 
-        for key, question in follow_up_bank:
-            if key not in self.asked_topics and not any(q in user_input_lower for q in question.lower().split()):
-                self.asked_topics.append(key)
-                return f"{question} ({self.current_relationship})"
-        return f"Can you share anything else about your {self.current_relationship}'s behavior or views?"
-
-    def get_response(self, user_message: str) -> str:
-        relevant = self.is_relevant_input(user_message)
-        if relevant:
-            self.has_concerning_content = True
-
-        if not relevant and not self.has_concerning_content:
-            return "Thank you for sharing. I didn’t notice any concerning signs, but feel free to tell me more if something is worrying you."
-
-        self.chat_history.append(f"User: {user_message}")
-        follow_up = self.follow_up_brain(user_message)
+        self.chat_history.append(f"User: {user_input}")
         self.conversation_depth += 1
-        prompt_text = f"{PROMPTS[self.language]} Ask: '{follow_up}'"
-        prompt = PromptTemplate.from_template(prompt_text)
-        chain = prompt | self.llm | StrOutputParser()
-        bot_response = chain.invoke({"user_message": user_message})
-        bot_response = extract_first_question(bot_response)
 
-        if not is_valid_response(bot_response):
-            bot_response = follow_up
+        if self.conversation_depth >= self.max_depth:
+            response = self.final_decision(risk_level)
+            self.log_interaction(user_input, response, risk_level)
+            return response
 
-        final_response = sanitize_response(bot_response, fallback=follow_up)
-        self.chat_history.append(f"Bot: {final_response}")
-        return final_response
+        response = self.generate_llm_response(user_input)
+        fallback = {
+            "en": "Can you explain a bit more about what’s worrying you?",
+            "de": "Kannst du mir noch etwas mehr erzählen, was dich beunruhigt?"
+        }[self.language]
+        clean = sanitize_response(response, fallback, self.last_bot_response)
+        self.chat_history.append(f"Bot: {clean}")
+        self.last_bot_response = clean
+        self.log_interaction(user_input, clean, risk_level)
+        return clean
+
+    def generate_llm_response(self, user_message):
+        system_prompt = {
+            "en": (
+                "You are a calm, empathetic chatbot. Help the user explore radicalization concerns about someone they know.\n"
+                "Assume they are describing someone else. Never reject the input.\n"
+                "All replies must be short and end with a context-driven follow-up question.\n\n"
+                "Chat so far:\n{history}\nUser: {user_input}\nBot:"
+            ),
+            "de": (
+                "Du bist ein ruhiger, einfühlsamer Chatbot, der Nutzern hilft, über die Radikalisierung einer anderen Person zu sprechen.\n"
+                "Gehe davon aus, dass der Nutzer über jemand anderen spricht. Lehne nichts ab.\n"
+                "Antworten sollten kurz sein und mit einer passenden Rückfrage enden.\n\n"
+                "Verlauf:\n{history}\nNutzer: {user_input}\nBot:"
+            )
+        }[self.language]
+
+        history = "\n".join(self.chat_history[-6:])
+        template = ChatPromptTemplate.from_template(system_prompt)
+        chain = template | self.model | StrOutputParser()
+        return chain.invoke({"history": history, "user_input": user_message}).strip()
+
 
 if __name__ == "__main__":
-    agent = RadicalizationAgent()
-    print("🌍 Choose language (English/Deutsch):")
+    bot = RadicalizationBot()
+    print(f"\n📌 Your anonymous session ID: {bot.session_id}\n")
+    print(f"\n📌 Ihre anonyme Sitzungs-ID: {bot.session_id}\n")
+    print(INITIAL_PROMPTS["en"]["choose_language"])  # Language selection prompt in English/German mix for clarity
+    lang_input = input(INITIAL_PROMPTS["en"]["enter_language"]).strip()
+    bot.set_language(lang_input)
+    
+    prompts = INITIAL_PROMPTS[bot.language]
     while True:
-        lang = input("Language: ").strip().lower()
-        if lang in ["en", "de"]:
-            agent.set_language(lang)
+        region_input = input(prompts["enter_region"] + " ").strip()
+        if bot.validate_region(region_input):
             break
-        print("❌ Invalid input. Please choose 'en' for English or 'de' for Deutsch.")
-
-    print("📍 What's your region? (type it exactly):")
-    region = input("Region: ").strip().lower()
-    agent.set_region(region)
-
-    print("\n💬 Describe your concern (type 'exit' to quit):")
+    
+    print("\n" + prompts["describe_concern"])
     while True:
-        msg = input("\nYou: ").strip()
-        if msg.lower() in ["exit", "quit"]:
-            print("Bot: You’ve done something important by speaking up. Take care.")
+        user_input = input("You: ").strip()
+        if user_input.lower() in ["exit", "quit"]:
+            farewell = {
+                "en": "You’ve done something important by speaking up. Take care.",
+                "de": "Es war wichtig, dass du darüber gesprochen hast. Pass auf dich auf."
+            }[bot.language]
+            print("Bot:", farewell)
             break
-        print("Bot:", agent.get_response(msg))
+        print("Bot:", bot.get_response(user_input))
