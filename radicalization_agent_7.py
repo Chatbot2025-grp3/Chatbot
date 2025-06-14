@@ -21,7 +21,10 @@ except LookupError:
 
 API_KEY = os.getenv("CHAT_AI_ACCESS_KEY")
 
-REJECTION_PATTERNS = ["i cannot", "i'm not allowed", "i'm unable", "this violates", "please contact emergency services"]
+REJECTION_PATTERNS = {
+    "en": ["i cannot", "i'm not allowed", "i'm unable", "this violates", "please contact emergency services"],
+    "de": ["ich kann nicht", "ich darf nicht", "ich bin nicht in der lage", "das verstößt", "bitte wende dich an die notdienste"]
+}
 RADICALIZATION_CODES = ["88", "18", "23", "444", "888", "222111", "black sun", "swastika", "reich", "totenkopf", "celtic cross"]
 
 INITIAL_PROMPTS = {
@@ -39,8 +42,9 @@ INITIAL_PROMPTS = {
     }
 }
 
-def sanitize_response(response: str, fallback: str, previous: str) -> str:
-    if any(p in response.lower() for p in REJECTION_PATTERNS):
+def sanitize_response(response: str, fallback: str, previous: str, lang: str) -> str:
+    rejection_phrases = REJECTION_PATTERNS.get(lang, [])
+    if any(p in response.lower() for p in rejection_phrases):
         return "Can you tell me how this started, or when you first noticed the change?" if fallback == previous else fallback
     return response.strip()
 
@@ -221,6 +225,18 @@ class RadicalizationBot:
             print(f"Logging error: {e}")
 
     def get_response(self, user_input):
+        exit_commands = {
+            "en": ["exit", "quit"],
+            "de": ["exit", "beenden", "ende", "verlassen"]
+        }
+        if user_input.lower() in exit_commands.get(self.language, []):
+            farewell = {
+                "en": "You’ve done something important by speaking up. Take care.",
+                "de": "Es war wichtig, dass du darüber gesprochen hast. Pass auf dich auf."
+            }[self.language]
+            self.log_interaction(user_input, farewell, "none")
+            return farewell
+
         if self.is_irrelevant(user_input):
             response = {
                 "en": "I’m here to support you. Can you describe what made you concerned?",
@@ -245,7 +261,37 @@ class RadicalizationBot:
             "en": "Can you explain a bit more about what’s worrying you?",
             "de": "Kannst du mir noch etwas mehr erzählen, was dich beunruhigt?"
         }[self.language]
-        clean = sanitize_response(response, fallback, self.last_bot_response)
+        clean = sanitize_response(response, fallback, self.last_bot_response, self.language)
+        self.chat_history.append(f"Bot: {clean}")
+        self.last_bot_response = clean
+        self.log_interaction(user_input, clean, risk_level)
+        return clean
+
+        if self.is_irrelevant(user_input):
+            response = {
+                "en": "I’m here to support you. Can you describe what made you concerned?",
+                "de": "Ich bin für dich da. Magst du erzählen, was dir Sorgen macht?"
+            }[self.language]
+            self.log_interaction(user_input, response, "none")
+            return response
+
+        sentiment, hate = self.analyze_input(user_input)
+        risk_level = self.assess_risk(sentiment, hate, user_input)
+
+        self.chat_history.append(f"User: {user_input}")
+        self.conversation_depth += 1
+
+        if self.conversation_depth >= self.max_depth:
+            response = self.final_decision(risk_level)
+            self.log_interaction(user_input, response, risk_level)
+            return response
+
+        response = self.generate_llm_response(user_input)
+        fallback = {
+            "en": "Can you explain a bit more about what’s worrying you?",
+            "de": "Kannst du mir noch etwas mehr erzählen, was dich beunruhigt?"
+        }[self.language]
+        clean = sanitize_response(response, fallback, self.last_bot_response, self.language)
         self.chat_history.append(f"Bot: {clean}")
         self.last_bot_response = clean
         self.log_interaction(user_input, clean, risk_level)

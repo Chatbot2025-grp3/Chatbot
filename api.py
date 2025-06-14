@@ -23,8 +23,8 @@ def chat_with_bot(payload: Message):
             agent.set_region(payload.region)
             sessions[payload.session_id] = agent
 
-
         agent = sessions[payload.session_id]
+        agent.set_language(payload.lang)  # Ensure language is updated
         reply = agent.get_response(payload.message)
 
         if not reply:
