@@ -56,7 +56,7 @@ def is_generic_behavioral_change(message: str, sentiment: dict) -> bool:
     lower = message.lower()
     generic_keywords = [
         "not hungry", "upset", "frustrated", "didn't get recognition", "sits alone",
-        "won’t eat", "won’t talk", "lost motivation", "doesn't join", "withdrawn"
+        "won't eat", "won't talk", "lost motivation", "doesn't join", "withdrawn"
     ]
     emotional = sentiment["compound"] <= -0.5
     return any(k in lower for k in generic_keywords) and not contains_embedded_code(lower)
@@ -186,7 +186,7 @@ class RadicalizationBot:
         closing_msg = {
             "en": (
                 "\n\nYou did the right thing by not looking away."
-                "\nIf you want to add anything later, I’m here."
+                "\nIf you want to add anything later, I'm here."
                 "\nHere is another link with information on how to recognize radicalization."
             ),
             "de": (
@@ -231,7 +231,7 @@ class RadicalizationBot:
         }
         if user_input.lower() in exit_commands.get(self.language, []):
             farewell = {
-                "en": "You’ve done something important by speaking up. Take care.",
+                "en": "You've done something important by speaking up. Take care.",
                 "de": "Es war wichtig, dass du darüber gesprochen hast. Pass auf dich auf."
             }[self.language]
             self.log_interaction(user_input, farewell, "none")
@@ -239,7 +239,7 @@ class RadicalizationBot:
 
         if self.is_irrelevant(user_input):
             response = {
-                "en": "I’m here to support you. Can you describe what made you concerned?",
+                "en": "I'm here to support you. Can you describe what made you concerned?",
                 "de": "Ich bin für dich da. Magst du erzählen, was dir Sorgen macht?"
             }[self.language]
             self.log_interaction(user_input, response, "none")
@@ -258,37 +258,7 @@ class RadicalizationBot:
 
         response = self.generate_llm_response(user_input)
         fallback = {
-            "en": "Can you explain a bit more about what’s worrying you?",
-            "de": "Kannst du mir noch etwas mehr erzählen, was dich beunruhigt?"
-        }[self.language]
-        clean = sanitize_response(response, fallback, self.last_bot_response, self.language)
-        self.chat_history.append(f"Bot: {clean}")
-        self.last_bot_response = clean
-        self.log_interaction(user_input, clean, risk_level)
-        return clean
-
-        if self.is_irrelevant(user_input):
-            response = {
-                "en": "I’m here to support you. Can you describe what made you concerned?",
-                "de": "Ich bin für dich da. Magst du erzählen, was dir Sorgen macht?"
-            }[self.language]
-            self.log_interaction(user_input, response, "none")
-            return response
-
-        sentiment, hate = self.analyze_input(user_input)
-        risk_level = self.assess_risk(sentiment, hate, user_input)
-
-        self.chat_history.append(f"User: {user_input}")
-        self.conversation_depth += 1
-
-        if self.conversation_depth >= self.max_depth:
-            response = self.final_decision(risk_level)
-            self.log_interaction(user_input, response, risk_level)
-            return response
-
-        response = self.generate_llm_response(user_input)
-        fallback = {
-            "en": "Can you explain a bit more about what’s worrying you?",
+            "en": "Can you explain a bit more about what's worrying you?",
             "de": "Kannst du mir noch etwas mehr erzählen, was dich beunruhigt?"
         }[self.language]
         clean = sanitize_response(response, fallback, self.last_bot_response, self.language)
@@ -338,7 +308,7 @@ if __name__ == "__main__":
         user_input = input("You: ").strip()
         if user_input.lower() in ["exit", "quit"]:
             farewell = {
-                "en": "You’ve done something important by speaking up. Take care.",
+                "en": "You've done something important by speaking up. Take care.",
                 "de": "Es war wichtig, dass du darüber gesprochen hast. Pass auf dich auf."
             }[bot.language]
             print("Bot:", farewell)
