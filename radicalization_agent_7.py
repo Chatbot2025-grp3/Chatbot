@@ -111,52 +111,70 @@ class RadicalizationBot:
         self.hate_classifier = pipeline("text-classification", model="facebook/roberta-hate-speech-dynabench-r4-target")
 
         # Load support data from Excel
-        excel_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "region based support.xlsx")
+        excel_path = "/app/data/region based support.xlsx"
         self.region_support_data = self.load_support_data_from_excel(excel_path)
 
-    def load_support_data_from_excel(self, filepath):
+    def load_support_data_from_excel(self, file_path):
         try:
-            df = pd.read_excel(filepath)
+            df = pd.read_excel(file_path)
             support_dict = {}
+
             for _, row in df.iterrows():
                 region_key = str(row['Bundesland']).strip().lower()
-                website = str(row.get('Internetauftritt', '')).strip()
-                contact_info = str(row.get('Kontaktmöglichkeiten', '')).strip()
+                website = str(row['Internetauftritt']).strip() if not pd.isna(row['Internetauftritt']) else ""
 
-                email_match = re.search(r"[\w\.-]+@[\w\.-]+", contact_info)
-                phone_match = re.search(r"Tel\.:?\s*([+\d\s\(\)-]+)", contact_info)
+                # Try to extract email and phone from 'Kontaktmöglichkeiten'
+                contact = str(row['Kontaktmöglichkeiten'])
+                email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", contact)
+                phone_match = re.search(r"(\+49[\d\s\-().]+)", contact)
 
                 support_dict[region_key] = {
                     "website": website,
                     "email": email_match.group(0) if email_match else "",
                     "phone": phone_match.group(1).strip() if phone_match else ""
                 }
+
             return support_dict
+
         except Exception as e:
-            print(f"Error loading support data: {e}")
+            print(f"[ERROR] Excel parsing failed: {e}")
             return {
                 "default": {
-                    "website": "https://www.exit-deutschland.de",
+                    "website": "https://www.zentrum-demokratische-kultur.de",
                     "email": "helppreventradicalization@gmail.com",
                     "phone": "+49 000 0000000"
                 }
             }
-
+    
     def set_language(self, lang):
         self.language = "de" if lang.lower() in ["de", "deutsch", "german"] else "en"
 
     def set_region(self, region):
-        self.region = region.lower().strip()
+        normalized = region.strip().lower()
+
+        if not self.region_support_data:
+            print(f"[ERROR] Support data not loaded.")
+            self.region = "default"
+            return
+
+        if normalized in self.region_support_data:
+            self.region = normalized
+            print(f"[INFO] Region set to: '{self.region}'")
+        else:
+            print(f"[WARNING] Region '{region}' (normalized: '{normalized}') not found. Using default.")
+            print(f"[DEBUG] Keys: {list(self.region_support_data.keys())}")
+            self.region = "default"
+
 
     def validate_region(self, user_region):
-        normalized = user_region.lower().strip()
+        normalized = user_region.strip().lower()
         if normalized in self.region_support_data:
             self.region = normalized
             return True
         else:
-            print(f"Region '{user_region}' not recognized, defaulting to general support.")
+            print(f"[Warning] Region '{user_region}' not found in support data. Using 'default'.")
             self.region = "default"
-            return True
+            return False
 
     def is_irrelevant(self, message: str) -> bool:
         return message.lower() in ["hi", "hello", "bye", "how are you", "i am a disco dancer"] or len(message.strip()) < 5
@@ -171,27 +189,74 @@ class RadicalizationBot:
             self.observed_flags.append("symbolic_code")
         return sentiment, hate
 
+    def detect_risk_tags_with_llm(self, message):
+        instruction = {
+            "en": (
+                "Classify the following message using these risk categories:"
+                "\n- physical_violence (e.g., attacking, threats to kill, mentions of weapons, fighting)"
+                "\n- gesture_aggression (e.g., offensive signs, hand gestures)"
+                "\n- peer_pressure (e.g., social pressure, threats of exclusion)"
+                "\n- rapid_shift (e.g., sudden behavior changes, mood swings)"
+                "\nReturn a comma-separated list of applicable tags. If none apply, return: none."
+            ),
+            "de": (
+                "Klassifiziere die folgende Nachricht anhand dieser Risikokategorien:"
+                "\n- physical_violence  (z. B. Angriffe, Tötungsdrohungen, Waffen, Kämpfe)"
+                "\n- gesture_aggression (z. B. beleidigende Gesten, Handzeichen)"
+                "\n- peer_pressure (z. B. Gruppenzwang, Ausschlussandrohungen)"
+                "\n- rapid_shift (z. B. plötzliche Verhaltensänderungen, Stimmungsschwankungen)"
+                "\nGib eine durch Kommas getrennte Liste passender Tags zurück. Wenn keine zutreffen: none."
+            )
+        }[self.language]
+
+        formatted_prompt = f"{instruction}\n\nMessage:\n{message}\n\nTags:"
+
+        try:
+            llm_chain = ChatPromptTemplate.from_template("{prompt}") | self.model | StrOutputParser()
+            response = llm_chain.invoke({"prompt": formatted_prompt}).strip().lower()
+            tags = [tag.strip() for tag in response.split(",") if tag.strip() != "none"]
+            return tags
+        except Exception as e:
+            print(f"LLM classification error: {e}")
+            return []
+
     def assess_risk(self, sentiment, hate, message):
         score = 0
+
         if hate["label"].lower() in ["hateful", "hate speech"]:
             self.observed_flags.append("hate")
             score += 2
+
         if sentiment["compound"] <= -0.5:
             if "negative_sentiment" not in self.observed_flags:
                 self.observed_flags.append("negative_sentiment")
-            score = min(score + 1, score)
+            score += 1
+
         if contains_embedded_code(message):
             self.observed_flags.append("symbolic_code")
             score += 2
+
         if is_generic_behavioral_change(message, sentiment):
             self.observed_flags.append("non_radical_behavior")
             return "low"
-        if score >= 3 and any(flag in self.observed_flags for flag in ["hate", "symbolic_code"]):
+
+        #  Use LLM to infer risk categories instead of rigid phrase matching
+        inferred_tags = self.detect_risk_tags_with_llm(message)
+
+        for tag in inferred_tags:
+            if tag not in self.observed_flags:
+                self.observed_flags.append(tag)
+                score += 2 if tag == "physical_violence" else 1
+
+        # Decision logic (now with 'none' level)
+        if score >= 3 and any(flag in self.observed_flags for flag in ["hate", "symbolic_code", "physical_violence"]):
             return "high"
         elif score >= 2:
             return "moderate"
-        else:
+        elif score == 1:
             return "low"
+        else:
+            return "none"
 
     def final_decision(self, risk_level):
         support = self.region_support_data.get(self.region, self.region_support_data.get("default"))
@@ -205,12 +270,12 @@ class RadicalizationBot:
             "en": (
                 "\n\nYou did the right thing by not looking away."
                 "\nIf you want to add anything later, I'm here."
-                "\nHere is another link with information on how to recognize radicalization."
+                "\nIf you'd like to explore more about this topic, I'm here to help anytime."
             ),
             "de": (
                 "\n\nDu hast das Richtige getan, indem du nicht weggeschaut hast."
                 "\nWenn du später noch etwas hinzufügen möchtest, bin ich hier."
-                "\nHier ist ein weiterer Link mit Informationen, wie man Radikalisierung erkennt."
+                "\nWenn du noch mehr über dieses Thema erfahren möchtest, helfe ich dir gerne weiter."
             )
         }[lang]
 
@@ -230,12 +295,12 @@ class RadicalizationBot:
         elif risk_level == "moderate":
             referral_msg = {
                 "en": (
-                    "🚨 There are multiple warning signs here. It would be a good idea to speak with professionals."
+                    " There are multiple warning signs here. It would be a good idea to speak with professionals."
                     f"\n- Website: {website}"
                     f"\n- Email: {email}"
                 ),
                 "de": (
-                    "🚨 Es gibt mehrere Warnzeichen. Es wäre gut, mit Fachleuten zu sprechen."
+                    " Es gibt mehrere Warnzeichen. Es wäre gut, mit Fachleuten zu sprechen."
                     f"\n- Website: {website}"
                     f"\n- E-Mail: {email}"
                 )
@@ -267,7 +332,6 @@ class RadicalizationBot:
                     f"\n- Website: {website}"
                 )
             }[lang]
-
         return f"{referral_msg}{closing_msg}"
 
     def log_interaction(self, user_input, bot_response, risk_level):
@@ -337,6 +401,11 @@ class RadicalizationBot:
         return llm_reply
 
     def generate_llm_response(self, user_message):
+        prompt_language_instruction = {
+            "en": "Always respond in English, regardless of the user's input language. Do not switch languages unless the system instructs you to.",
+            "de": "Antworte immer auf Deutsch, unabhängig von der Spracheingabe des Nutzers. Wechsle die Sprache nur, wenn das System dich dazu auffordert."
+        }[self.language]
+
         system_prompt = {
             "en": (
                 "You are a calm, empathetic chatbot helping users explore radicalization concerns about someone they know."
@@ -345,13 +414,13 @@ class RadicalizationBot:
                 " If the user writes 'only this', 'that’s all', or 'I don’t know more', acknowledge it and gently shift."
                 " Never accuse the user of repeating themselves unless it's explicitly clear and repeated verbatim."
                 " Do not describe people with emotionally charged terms like 'arrogant' or 'aggressive'."
-                " Thank the user for any repeated or clarified points instead of pointing out repetition."
+                " Thank the user for any repeated or clarified points only if it adds new insight."
                 " Avoid statements like 'you mentioned this twice' or 'you already said that'."
                 " Avoid counting how many times something was mentioned unless it's tracked explicitly."
                 " Make sure the conversation progressively converges toward exploring potential signs of radicalization."
                 " Use emotional, ideological, behavioral, or linguistic cues from the user input to ask meaningful and escalating follow-up questions."
                 " Avoid logistics, location trivia, or small talk. Stay focused on the underlying beliefs, influences, communication patterns, or worldview changes."
-                " All replies must be short and end with a context-driven follow-up question."
+                f" {prompt_language_instruction}"
                 "\n\nChat so far:\n{history}\nUser: {user_input}\nBot:"
             ),
             "de": (
@@ -361,13 +430,13 @@ class RadicalizationBot:
                 " Wenn der Nutzer 'nur das', 'mehr weiß ich nicht' oder 'das ist alles' schreibt, erkenne das an und leite behutsam weiter."
                 " Unterstelle dem Nutzer niemals Wiederholungen, es sei denn, die Aussage wurde wörtlich erneut genannt."
                 " Verwende keine emotional wertenden Begriffe wie 'arrogant' oder 'aggressiv'."
-                " Bedanke dich für Klarstellungen, auch wenn Inhalte wiederholt erscheinen."
+                " Bedanke dich für Klarstellungen nur dann, wenn sie wirklich neue Informationen enthalten."
                 " Vermeide Aussagen wie 'du hast das schon zweimal erwähnt' oder 'das hast du bereits gesagt'."
                 " Zähle nicht, wie oft etwas erwähnt wurde, außer du kannst es aus dem Verlauf klar ableiten."
                 " Sorge dafür, dass das Gespräch zunehmend in Richtung möglicher Anzeichen von Radikalisierung führt."
                 " Nutze emotionale, ideologische, verhaltensbezogene oder sprachliche Hinweise aus den Nutzerangaben für sinnvolle und vertiefende Folgefragen."
                 " Vermeide Nebensächlichkeiten wie Veranstaltungsdetails, Orte oder Smalltalk. Bleibe beim Thema Weltanschauung, Einflussquellen und Kommunikationsverhalten."
-                " Jede Antwort soll kurz sein und mit einer passenden, themenbezogenen Frage enden."
+                f" {prompt_language_instruction}"
                 "\n\nVerlauf:\n{history}\nNutzer: {user_input}\nBot:"
             )
         }[self.language]
@@ -379,8 +448,8 @@ class RadicalizationBot:
 
 if __name__ == "__main__":
     bot = RadicalizationBot()
-    print(f"\n📌 Your anonymous session ID: {bot.session_id}\n")
-    print(f"\n📌 Ihre anonyme Sitzungs-ID: {bot.session_id}\n")
+    print(f"\n Your anonymous session ID: {bot.session_id}\n")
+    print(f"\n Ihre anonyme Sitzungs-ID: {bot.session_id}\n")
     print(INITIAL_PROMPTS["en"]["choose_language"])  # Language selection prompt in English/German mix for clarity
     lang_input = input(INITIAL_PROMPTS["en"]["enter_language"]).strip()
     bot.set_language(lang_input)

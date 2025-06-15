@@ -20,11 +20,12 @@ def chat_with_bot(payload: Message):
         if payload.session_id not in sessions:
             agent = RadicalizationBot(session_id=payload.session_id)
             agent.set_language(payload.lang)
-            agent.set_region(payload.region)
+            agent.set_region(payload.region) 
             sessions[payload.session_id] = agent
 
         agent = sessions[payload.session_id]
         agent.set_language(payload.lang)  # Ensure language is updated
+        agent.set_region(payload.region) 
         reply = agent.get_response(payload.message)
 
         if not reply:
