@@ -11,6 +11,8 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
+import random  # Add this import at the top of your script if not already present
+
 
 # Load .env and NLTK data
 load_dotenv()
@@ -42,11 +44,33 @@ INITIAL_PROMPTS = {
     }
 }
 
-def sanitize_response(response: str, fallback: str, previous: str, lang: str) -> str:
+def sanitize_response(response: str, fallback: str, previous: str, lang: str, asked_fallbacks=None) -> str:
     rejection_phrases = REJECTION_PATTERNS.get(lang, [])
+    
+    fallback_variants = {
+        "en": [
+            "Can you explain a bit more about what's worrying you?",
+            "Could you tell me what specifically is making you concerned?",
+            "Has something specific triggered this behavior?",
+            "Can you tell me how this started, or when you first noticed the change?"
+        ],
+        "de": [
+            "Kannst du mir ein bisschen mehr erzählen, was dich beunruhigt?",
+            "Was genau macht dir Sorgen?",
+            "Gab es einen Auslöser für dieses Verhalten?",
+            "Kannst du mir sagen, wann dieses Verhalten begonnen hat?"
+        ]
+    }
+
     if any(p in response.lower() for p in rejection_phrases):
-        return "Can you tell me how this started, or when you first noticed the change?" if fallback == previous else fallback
+        asked_fallbacks = asked_fallbacks or set()
+        options = [f for f in fallback_variants[lang] if f not in asked_fallbacks]
+        chosen = options[0] if options else fallback_variants[lang][0]
+        asked_fallbacks.add(chosen)
+        return chosen
+
     return response.strip()
+
 
 def contains_embedded_code(text: str) -> bool:
     lower = text.lower()
@@ -73,6 +97,7 @@ class RadicalizationBot:
         self.conversation_depth = 0
         self.max_depth = 6
         self.last_bot_response = ""
+        self.asked_fallbacks = set()
         self.log_file = "/app/logs/bot_session_logs.jsonl"
 
         self.model = ChatOpenAI(
@@ -168,21 +193,14 @@ class RadicalizationBot:
         else:
             return "low"
 
-    def get_referral_message(self, risk_level):
+    def final_decision(self, risk_level):
         support = self.region_support_data.get(self.region, self.region_support_data.get("default"))
         website = support.get("website", "")
         email = support.get("email", "")
         phone = support.get("phone", "")
 
-        if risk_level in ["low", "moderate"]:
-            return f"Please consider these support options:\n- Website: {website}\n- Email: {email}"
-        elif risk_level == "high":
-            return f"Immediate help is recommended. Contact:\n- Email: {email}\n- Phone: {phone}"
-        else:
-            return "Please consider reaching out to professional support if needed."
+        lang = self.language
 
-    def final_decision(self, risk_level):
-        referral_msg = self.get_referral_message(risk_level)
         closing_msg = {
             "en": (
                 "\n\nYou did the right thing by not looking away."
@@ -194,18 +212,63 @@ class RadicalizationBot:
                 "\nWenn du später noch etwas hinzufügen möchtest, bin ich hier."
                 "\nHier ist ein weiterer Link mit Informationen, wie man Radikalisierung erkennt."
             )
-        }[self.language]
+        }[lang]
 
         if risk_level == "high":
-            return {
-                "en": f"This may be serious. {referral_msg}{closing_msg}",
-                "de": f"Das klingt ernst. {referral_msg}{closing_msg}"
-            }[self.language]
+            referral_msg = {
+                "en": (
+                    "⚠️ This sounds very serious. Please don’t wait to seek professional help."
+                    f"\n- Email: {email}"
+                    f"\n- Phone: {phone}"
+                ),
+                "de": (
+                    "⚠️ Das klingt sehr ernst. Bitte zögere nicht, dir professionelle Hilfe zu suchen."
+                    f"\n- E-Mail: {email}"
+                    f"\n- Telefon: {phone}"
+                )
+            }[lang]
+        elif risk_level == "moderate":
+            referral_msg = {
+                "en": (
+                    "🚨 There are multiple warning signs here. It would be a good idea to speak with professionals."
+                    f"\n- Website: {website}"
+                    f"\n- Email: {email}"
+                ),
+                "de": (
+                    "🚨 Es gibt mehrere Warnzeichen. Es wäre gut, mit Fachleuten zu sprechen."
+                    f"\n- Website: {website}"
+                    f"\n- E-Mail: {email}"
+                )
+            }[lang]
+        elif risk_level == "low":
+            referral_msg = {
+                "en": (
+                    "Thank you for sharing. These signs may not be urgent, but it’s good you’re paying attention."
+                    f"\n- Website: {website}"
+                    f"\n- Email: {email}"
+                ),
+                "de": (
+                    "Danke für deine Offenheit. Diese Anzeichen sind vielleicht nicht dringend, aber es ist gut, dass du aufmerksam bist."
+                    f"\n- Website: {website}"
+                    f"\n- E-Mail: {email}"
+                )
+            }[lang]
         else:
+            # No clear sign of radicalization (None level)
             return {
-                "en": f"Thank you for sharing. {referral_msg}{closing_msg}",
-                "de": f"Danke für deine Offenheit. {referral_msg}{closing_msg}"
-            }[self.language]
+                "en": (
+                    "I'm not able to detect any clear signs of radicalization based on what you've told me — but this may also be beyond my capabilities."
+                    "\nIt's good that you're paying attention. Please consider raising your concern here for expert input:"
+                    f"\n- Website: {website}"
+                ),
+                "de": (
+                    "Ich kann anhand deiner Angaben keine eindeutigen Anzeichen für Radikalisierung erkennen — aber es könnte auch über meine Möglichkeiten hinausgehen."
+                    "\nEs ist gut, dass du aufmerksam bist. Bitte erwäge, deine Beobachtung hier zu melden:"
+                    f"\n- Website: {website}"
+                )
+            }[lang]
+
+        return f"{referral_msg}{closing_msg}"
 
     def log_interaction(self, user_input, bot_response, risk_level):
         log_entry = {
@@ -229,6 +292,7 @@ class RadicalizationBot:
             "en": ["exit", "quit"],
             "de": ["exit", "beenden", "ende", "verlassen"]
         }
+        
         if user_input.lower() in exit_commands.get(self.language, []):
             farewell = {
                 "en": "You've done something important by speaking up. Take care.",
@@ -256,30 +320,55 @@ class RadicalizationBot:
             self.log_interaction(user_input, response, risk_level)
             return response
 
-        response = self.generate_llm_response(user_input)
-        fallback = {
-            "en": "Can you explain a bit more about what's worrying you?",
-            "de": "Kannst du mir noch etwas mehr erzählen, was dich beunruhigt?"
-        }[self.language]
-        clean = sanitize_response(response, fallback, self.last_bot_response, self.language)
-        self.chat_history.append(f"Bot: {clean}")
-        self.last_bot_response = clean
-        self.log_interaction(user_input, clean, risk_level)
-        return clean
+        llm_reply = self.generate_llm_response(user_input).strip()
+        rejection_phrases = REJECTION_PATTERNS.get(self.language, [])
+
+        # Fallback only if LLM fails or gives a rejection
+        if not llm_reply or any(p in llm_reply.lower() for p in rejection_phrases):
+            fallback = {
+                "en": "Could you share anything specific you've seen or heard that made you feel this way?",
+                "de": "Kannst du etwas Konkretes erzählen, das dir besonders aufgefallen ist?"
+            }[self.language]
+            llm_reply = fallback
+
+        self.chat_history.append(f"Bot: {llm_reply}")
+        self.last_bot_response = llm_reply
+        self.log_interaction(user_input, llm_reply, risk_level)
+        return llm_reply
 
     def generate_llm_response(self, user_message):
         system_prompt = {
             "en": (
-                "You are a calm, empathetic chatbot. Help the user explore radicalization concerns about someone they know.\n"
-                "Assume they are describing someone else. Never reject the input.\n"
-                "All replies must be short and end with a context-driven follow-up question.\n\n"
-                "Chat so far:\n{history}\nUser: {user_input}\nBot:"
+                "You are a calm, empathetic chatbot helping users explore radicalization concerns about someone they know."
+                " Always build directly on the last user input. Never repeat questions already asked."
+                " Avoid generic follow-ups like 'Can you explain more?' if the user has already answered."
+                " If the user writes 'only this', 'that’s all', or 'I don’t know more', acknowledge it and gently shift."
+                " Never accuse the user of repeating themselves unless it's explicitly clear and repeated verbatim."
+                " Do not describe people with emotionally charged terms like 'arrogant' or 'aggressive'."
+                " Thank the user for any repeated or clarified points instead of pointing out repetition."
+                " Avoid statements like 'you mentioned this twice' or 'you already said that'."
+                " Avoid counting how many times something was mentioned unless it's tracked explicitly."
+                " Make sure the conversation progressively converges toward exploring potential signs of radicalization."
+                " Use emotional, ideological, behavioral, or linguistic cues from the user input to ask meaningful and escalating follow-up questions."
+                " Avoid logistics, location trivia, or small talk. Stay focused on the underlying beliefs, influences, communication patterns, or worldview changes."
+                " All replies must be short and end with a context-driven follow-up question."
+                "\n\nChat so far:\n{history}\nUser: {user_input}\nBot:"
             ),
             "de": (
-                "Du bist ein ruhiger, einfühlsamer Chatbot, der Nutzern hilft, über die Radikalisierung einer anderen Person zu sprechen.\n"
-                "Gehe davon aus, dass der Nutzer über jemand anderen spricht. Lehne nichts ab.\n"
-                "Antworten sollten kurz sein und mit einer passenden Rückfrage enden.\n\n"
-                "Verlauf:\n{history}\nNutzer: {user_input}\nBot:"
+                "Du bist ein ruhiger, einfühlsamer Chatbot, der Menschen hilft, ihre Sorgen über eine mögliche Radikalisierung von Bekannten zu erkunden."
+                " Gehe immer direkt auf den letzten Nutzereingang ein. Wiederhole keine Fragen."
+                " Vermeide generische Rückfragen wie 'Kannst du mehr erzählen?', wenn der Nutzer bereits geantwortet hat."
+                " Wenn der Nutzer 'nur das', 'mehr weiß ich nicht' oder 'das ist alles' schreibt, erkenne das an und leite behutsam weiter."
+                " Unterstelle dem Nutzer niemals Wiederholungen, es sei denn, die Aussage wurde wörtlich erneut genannt."
+                " Verwende keine emotional wertenden Begriffe wie 'arrogant' oder 'aggressiv'."
+                " Bedanke dich für Klarstellungen, auch wenn Inhalte wiederholt erscheinen."
+                " Vermeide Aussagen wie 'du hast das schon zweimal erwähnt' oder 'das hast du bereits gesagt'."
+                " Zähle nicht, wie oft etwas erwähnt wurde, außer du kannst es aus dem Verlauf klar ableiten."
+                " Sorge dafür, dass das Gespräch zunehmend in Richtung möglicher Anzeichen von Radikalisierung führt."
+                " Nutze emotionale, ideologische, verhaltensbezogene oder sprachliche Hinweise aus den Nutzerangaben für sinnvolle und vertiefende Folgefragen."
+                " Vermeide Nebensächlichkeiten wie Veranstaltungsdetails, Orte oder Smalltalk. Bleibe beim Thema Weltanschauung, Einflussquellen und Kommunikationsverhalten."
+                " Jede Antwort soll kurz sein und mit einer passenden, themenbezogenen Frage enden."
+                "\n\nVerlauf:\n{history}\nNutzer: {user_input}\nBot:"
             )
         }[self.language]
 
@@ -287,7 +376,6 @@ class RadicalizationBot:
         template = ChatPromptTemplate.from_template(system_prompt)
         chain = template | self.model | StrOutputParser()
         return chain.invoke({"history": history, "user_input": user_message}).strip()
-
 
 if __name__ == "__main__":
     bot = RadicalizationBot()
