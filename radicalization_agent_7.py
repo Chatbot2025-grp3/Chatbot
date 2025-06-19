@@ -110,26 +110,9 @@ class RadicalizationBot:
         self.sentiment_analyzer = SentimentIntensityAnalyzer()
         self.hate_classifier = pipeline("text-classification", model="facebook/roberta-hate-speech-dynabench-r4-target")
 
-        # Initialize with default support data first
-        self.region_support_data = {
-            "default": {
-                "website": "https://www.zentrum-demokratische-kultur.de",
-                "email": "helppreventradicalization@gmail.com",
-                "phone": "+49 000 0000000"
-            }
-        }
-        
-        # Then try to load from Excel
-        excel_path = os.path.join(os.path.dirname(__file__), "region based support.xlsx")
-        if os.path.exists(excel_path):
-            loaded_data = self.load_support_data_from_excel(excel_path)
-            if loaded_data:
-                self.region_support_data.update(loaded_data)
-                print(f"[DEBUG] Loaded {len(loaded_data)} regions from Excel")
-            else:
-                print("[WARNING] Excel loading failed, using default support data")
-        else:
-            print(f"[WARNING] Excel file not found at {excel_path}, using default support data")
+        # Load support data from Excel
+        excel_path = os.path.join(os.path.dirname(__file__), "region.xlsx")
+        self.region_support_data = self.load_support_data_from_excel(excel_path)
 
     def load_support_data_from_excel(self, file_path):
         try:
@@ -137,7 +120,7 @@ class RadicalizationBot:
             support_dict = {}
 
             for _, row in df.iterrows():
-                region_key = str(row['Bundesland']).strip()  # Keep original case
+                region_key = str(row['Bundesland']).strip().lower()
                 website = str(row['Internetauftritt']).strip() if not pd.isna(row['Internetauftritt']) else ""
 
                 # Try to extract email and phone from 'Kontaktmöglichkeiten'
@@ -145,19 +128,23 @@ class RadicalizationBot:
                 email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", contact)
                 phone_match = re.search(r"(\+49[\d\s\-().]+)", contact)
 
-                if region_key:  # Only add if region name exists
-                    support_dict[region_key] = {
-                        "website": website,
-                        "email": email_match.group(0) if email_match else "",
-                        "phone": phone_match.group(1).strip() if phone_match else ""
-                    }
+                support_dict[region_key] = {
+                    "website": website,
+                    "email": email_match.group(0) if email_match else "",
+                    "phone": phone_match.group(1).strip() if phone_match else ""
+                }
 
-            print(f"[DEBUG] Loaded regions: {list(support_dict.keys())}")
             return support_dict
 
         except Exception as e:
             print(f"[ERROR] Excel parsing failed: {e}")
-            return None
+            return {
+                "default": {
+                    "website": "https://www.zentrum-demokratische-kultur.de",
+                    "email": "helppreventradicalization@gmail.com",
+                    "phone": "+49 000 0000000"
+                }
+            }
     
     def set_language(self, lang):
         self.language = "de" if lang.lower() in ["de", "deutsch", "german"] else "en"
@@ -169,20 +156,20 @@ class RadicalizationBot:
         
         # Normalize the input (case, special chars, spaces)
         normalized_input = (region.strip().lower()
-                        .replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+                        .replace("ä", "a").replace("ö", "o").replace("ü", "u")
                         .replace("ß", "ss")
                         .replace("-", " ").replace("  ", " ").strip())
         
         # Find matching region in loaded data
         for loaded_region in self.region_support_data.keys():
             normalized_loaded = (loaded_region.strip().lower()
-                            .replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+                            .replace("ä", "a").replace("ö", "o").replace("ü", "u")
                             .replace("ß", "ss")
                             .replace("-", " ").replace("  ", " ").strip())
             
             if normalized_input == normalized_loaded:
                 self.region = loaded_region  # Keep original casing from Excel
-                print(f"[DEBUG] Setting region: '{self.region}' (normalized input: '{normalized_input}')")
+                print(f"[INFO] Region set to: {self.region}")
                 return
         
         print(f"[WARNING] Region '{region}' not found. Available regions: {list(self.region_support_data.keys())}")
@@ -195,20 +182,19 @@ class RadicalizationBot:
         
         # Normalize the input (case, special chars, spaces)
         normalized_input = (user_region.strip().lower()
-                        .replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+                        .replace("ä", "a").replace("ö", "o").replace("ü", "u")
                         .replace("ß", "ss")
                         .replace("-", " ").replace("  ", " ").strip())
         
         # Find matching region in loaded data
         for loaded_region in self.region_support_data.keys():
             normalized_loaded = (loaded_region.strip().lower()
-                            .replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+                            .replace("ä", "a").replace("ö", "o").replace("ü", "u")
                             .replace("ß", "ss")
                             .replace("-", " ").replace("  ", " ").strip())
             
             if normalized_input == normalized_loaded:
                 self.region = loaded_region  # Keep original casing from Excel
-                print(f"[DEBUG] Validated region: '{self.region}' (normalized input: '{normalized_input}')")
                 return True
         
         print(f"[WARNING] Region '{user_region}' not found. Using 'default'.")
@@ -321,7 +307,7 @@ class RadicalizationBot:
         if risk_level == "high":
             referral_msg = {
                 "en": (
-                    "⚠️ This sounds very serious. Please don't wait to seek professional help."
+                    "⚠️ This sounds very serious. Please don’t wait to seek professional help."
                     f"\n- Email: {email}"
                     f"\n- Phone: {phone}"
                 ),
@@ -347,7 +333,7 @@ class RadicalizationBot:
         elif risk_level == "low":
             referral_msg = {
                 "en": (
-                    "Thank you for sharing. These signs may not be urgent, but it's good you're paying attention."
+                    "Thank you for sharing. These signs may not be urgent, but it’s good you’re paying attention."
                     f"\n- Website: {website}"
                     f"\n- Email: {email}"
                 ),
@@ -450,7 +436,7 @@ class RadicalizationBot:
                 "You are a calm, empathetic chatbot helping users explore radicalization concerns about someone they know."
                 " Always build directly on the last user input. Never repeat questions already asked."
                 " Avoid generic follow-ups like 'Can you explain more?' if the user has already answered."
-                " If the user writes 'only this', 'that's all', or 'I don't know more', acknowledge it and gently shift."
+                " If the user writes 'only this', 'that’s all', or 'I don’t know more', acknowledge it and gently shift."
                 " Never accuse the user of repeating themselves unless it's explicitly clear and repeated verbatim."
                 " Do not describe people with emotionally charged terms like 'arrogant' or 'aggressive'."
                 " Thank the user for any repeated or clarified points only if it adds new insight."
@@ -496,7 +482,6 @@ if __name__ == "__main__":
     prompts = INITIAL_PROMPTS[bot.language]
     while True:
         region_input = input(prompts["enter_region"] + " ").strip()
-        bot.set_region(region_input)
         if bot.validate_region(region_input):
             break
     

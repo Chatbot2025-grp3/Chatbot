@@ -16,21 +16,23 @@ class Message(BaseModel):
 
 @app.post("/chat")
 def chat_with_bot(payload: Message):
+   
     try:
         if payload.session_id not in sessions:
             agent = RadicalizationBot(session_id=payload.session_id)
             agent.set_language(payload.lang)
-            agent.set_region(payload.region) 
+            # Validate and set region
+            if not agent.validate_region(payload.region):
+                print(f"[API WARNING] Region '{payload.region}' not found, using default")
             sessions[payload.session_id] = agent
 
         agent = sessions[payload.session_id]
-        agent.set_language(payload.lang)  # Ensure language is updated
-        agent.set_region(payload.region) 
+        agent.set_language(payload.lang)
+        # Ensure the latest region is applied
+        if not agent.validate_region(payload.region):
+            print(f"[API WARNING] Updated region '{payload.region}' invalid, keeping previous")
+
         reply = agent.get_response(payload.message)
-
-        if not reply:
-            reply = "Sorry, I didn't understand that."
-
         return {"reply": reply}
     except Exception as e:
         return JSONResponse(

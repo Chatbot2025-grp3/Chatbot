@@ -1,6 +1,7 @@
 import streamlit as st
 import uuid
 import requests
+import os
 
 # Localized region options with placeholder
 REGIONS = {
@@ -34,6 +35,14 @@ if "lang" not in st.session_state:
     st.session_state["lang"] = "en"
 if "region" not in st.session_state:
     st.session_state["region"] = ""
+
+if (
+    not st.session_state["conversation_started"]
+    and st.session_state["lang"] is not None
+    and st.session_state["region"] not in ["", REGIONS[st.session_state["lang"]][0]]
+):
+    st.session_state["conversation_started"] = True
+
 
 # Language and region setup
 if not st.session_state["conversation_started"]:
@@ -75,11 +84,21 @@ else:
             st.session_state["lang"] = new_lang_code
             st.session_state["messages"].append(("bot", f"🌐 Language has been changed to {'English' if new_lang_code == 'en' else 'Deutsch'}."))
 
+    # 🔧 Get API URL from environment
+    API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost")
+    API_PORT = os.environ.get("API_PORT", "8001")
+
+    if "localhost" in API_BASE_URL or "127.0.0.1" in API_BASE_URL:
+        API_URL = f"{API_BASE_URL}:8000/chat"
+    else:
+        API_URL = f"{API_BASE_URL}:{API_PORT}/chat"
+
+
     def send_message():
         user_text = st.session_state["user_input"].strip()
         if user_text:
             try:
-                raw = requests.post("http://localhost:8000/chat", json={
+                raw = requests.post(API_URL, json={
                     "session_id": st.session_state["session_id"],
                     "message": user_text,
                     "lang": st.session_state["lang"],
