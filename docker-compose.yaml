@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: radicalization_bot
-    container_name: radicalization_bot
+    #container_name: radicalization_bot
     restart: unless-stopped
     ports:
       - "${API_PORT:-8001}:8000"   # FastAPI
