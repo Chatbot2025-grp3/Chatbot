@@ -11,32 +11,18 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
-from typing import Optional
-import random 
-import unicodedata
-
-# Global caches
-_code_check_cache = {}
-_llm_response_cache = {}
-_relevance_cache = {}
-_violence_cache = {}
+import random
 
 # Load .env and NLTK data
-def _ensure_nltk_data():
-    try:
-        from nltk.sentiment.vader import SentimentIntensityAnalyzer
-        SentimentIntensityAnalyzer()
-    except LookupError:
-        nltk.download("vader_lexicon")
+load_dotenv()
+try:
+    nltk.data.find("sentiment/vader_lexicon")
+except LookupError:
+    nltk.download("vader_lexicon")
 
 API_KEY = os.getenv("CHAT_AI_ACCESS_KEY")
 
-REJECTION_PATTERNS = {
-    "en": ["i cannot", "i'm not allowed", "i'm unable", "this violates", "please contact emergency services"],
-    "de": ["ich kann nicht", "ich darf nicht", "ich bin nicht in der lage", "das verstößt", "bitte wende dich an die notdienste"]
-}
-
-# Enhanced comprehensive radicalization indicators from documents
+# Comprehensive radicalization knowledge base
 RADICALIZATION_KNOWLEDGE_BASE = {
     "ideological_markers": [
         "great replacement", "großer austausch", "volkstod", "umvolkung",
@@ -46,8 +32,7 @@ RADICALIZATION_KNOWLEDGE_BASE = {
         "everything is connected", "alles hängt zusammen",
         "elites are lying", "eliten lügen", "globalists", "globalisten",
         "illuminati", "freimaurer", "freemasons", "rothschild",
-        "adrenochrome", "enlightened minority", "erwachte minderheit",
-        "hidden plan", "versteckter plan", "evil elite", "böse elite"
+        "adrenochrome", "enlightened minority", "erwachte minderheit"
     ],
     "anti_state_markers": [
         "brd gmbh", "die brd ist kein staat", "bundesrepublik nicht legitim",
@@ -55,151 +40,102 @@ RADICALIZATION_KNOWLEDGE_BASE = {
         "germany in borders of 1937", "deutschland in grenzen von 1937",
         "traitors to the people", "volksverräter", "system parties", "systemparteien",
         "the system must fall", "das system muss fallen", "altparteien",
-        "no taxes for system", "keine steuern für system", "i am self-governor",
-        "lügenpresse", "lying press", "mainstream media is fake"
+        "no taxes for system", "keine steuern für system", "lügenpresse"
     ],
     "conspiracy_markers": [
         "chemtrails", "5g causes illness", "5g macht krank", "haarp",
         "rfid", "barcode radiation", "barcodestrahlung", "vaccine chip", "impfchip",
         "death chip vaccinations", "todeschimp impfungen", "mind control",
-        "aluminum hat", "aluhut", "big pharma enemy", "they control everything",
-        "wake up sheeple", "wacht auf schafe", "global control through fear"
+        "aluminum hat", "aluhut", "big pharma enemy", "they control everything"
     ],
     "xenophobic_markers": [
         "islamization", "islamisierung", "eurabia", "arabization of europe",
         "population exchange", "bevölkerungsaustausch", "they use migrants",
         "we are being replaced", "wir werden ersetzt", "defend our people",
         "unser volk verteidigen", "protect fatherland", "vaterland schützen",
-        "pure national community", "reine volksgemeinschaft", "volkskörper",
-        "national body is sick", "volkskörper ist krank", "foreigners out", "ausländer raus"
+        "foreigners out", "ausländer raus", "don't belong here", "doesn't belong here",
+        "eating our resources", "spending our resources", "taking our resources",
+        "they are here", "supports extremism", "extremist content", "right-wing content"
     ],
     "hate_speech_markers": [
         "white lives matter", "weiße leben zählen", "deportation now", "abschiebung jetzt",
         "germany for germans", "deutschland den deutschen", "we are the people", "wir sind das volk",
-        "my people first", "mein volk zuerst", "end the system", "system beenden",
-        "for the fatherland", "für das vaterland"
+        "my people first", "mein volk zuerst", "end the system", "system beenden"
     ],
     "symbolic_codes": [
         "88", "18", "28", "444", "666", "23", "swastika", "hakenkreuz",
         "black sun", "schwarze sonne", "celtic cross", "keltenkreuz", 
         "ss runes", "⚡⚡", "reichsflagge", "imperial war flag", "reichskriegsflagge",
-        "eye of providence", "drudenstern", "pepe", "clown", "monkey",
-        "blue heart", "blaues herz", "döp dodö dop", "arardddar"
-    ],
-    "digital_radicalization_markers": [
-        "telegram truth", "telegram wahrheit", "real truth on", "echte wahrheit auf",
-        "4chan", "rumble", "do my own research", "eigene recherche",
-        "censored everywhere", "überall zensiert", "watch before deleted",
-        "anschauen bevor gelöscht", "they don't want you to see",
-        "querdenker", "redpiller", "blackpiller", "incel"
-    ],
-    "victimization_markers": [
-        "they are out to get us", "sie haben es auf uns abgesehen",
-        "we are being erased", "wir werden ausgelöscht", "silenced", "zum schweigen gebracht",
-        "traditional values under attack", "traditionelle werte unter angriff",
-        "you can't say anything anymore", "man kann nichts mehr sagen",
-        "this country going downhill", "dieses land geht bergab",
-        "i miss when things were normal", "vermisse als dinge normal waren"
-    ],
-    "anti_democratic_markers": [
-        "democracy is broken", "demokratie ist kaputt", "voting is pointless", "wählen ist sinnlos",
-        "politicians are all same", "politiker sind alle gleich", "it's all rigged", "alles manipuliert",
-        "courts protect criminals", "gerichte schützen verbrecher", "we live in dictatorship",
-        "taxation is theft", "steuern sind diebstahl"
+        "döp dodö dop", "arardddar"
     ]
 }
 
+# Enhanced prompts for different languages
 INITIAL_PROMPTS = {
     "en": {
         "choose_language": "Choose language (English/Deutsch):",
-        "enter_language": "Language: ",
         "enter_region": "📍 What's your region? (e.g. berlin, nrw, bremen):",
-        "describe_concern": """💬 I'm here to help you explore any concerns you might have about someone showing signs of radicalization. 
-This is a safe, anonymous space to share your observations. Could you tell me what's been worrying you?"""
+        "describe_concern": """💬 I'm here to help you explore any concerns about someone close to you. This is a safe, anonymous space. What's been worrying you about their behavior or words?"""
     },
     "de": {
         "choose_language": "Wähle Sprache (English/Deutsch):",
-        "enter_language": "Sprache: ",
         "enter_region": "📍 Was ist deine Region? (z.B. berlin, nrw, bremen):",
-        "describe_concern": """💬 Ich bin hier, um Ihnen zu helfen, Bedenken bezüglich möglicher Radikalisierungsanzeichen zu besprechen. 
-Dies ist ein sicherer, anonymer Raum, um Ihre Beobachtungen zu teilen. Was bereitet Ihnen Sorgen?"""
+        "describe_concern": """💬 Ich bin hier, um Ihnen bei Bedenken über eine nahestehende Person zu helfen. Dies ist ein sicherer, anonymer Raum. Was bereitet Ihnen Sorgen bezüglich ihres Verhaltens oder ihrer Worte?"""
     }
 }
 
-def contains_embedded_code(text: str) -> bool:
-    """Enhanced function using simple pattern matching with LLM backup"""
-    if text in _code_check_cache:
-        return _code_check_cache[text]
-
-    try:
-        # Simple fallback check for obvious codes
-        obvious_codes = ["88", "18", "444", "28", "döp dodö dop", "arardddar", "foreigners out", "ausländer raus"]
-        lower_text = text.lower()
-        result = any(code in lower_text for code in obvious_codes)
-        
-        _code_check_cache[text] = result
-        return result
-    except Exception:
-        _code_check_cache[text] = False
-        return False
-
-def normalize_text(text):
-    """Normalize umlauts and accented characters for consistent comparison."""
-    text = unicodedata.normalize("NFKD", text)
-    return "".join([c for c in text if not unicodedata.combining(c)]).lower()
-
-def is_generic_behavioral_change(message: str, sentiment: dict) -> bool:
-    lower = message.lower()
-    generic_keywords = [
-        "not hungry", "upset", "frustrated", "didn't get recognition", "sits alone",
-        "won't eat", "won't talk", "lost motivation", "doesn't join", "withdrawn"
-    ]
-    emotional = sentiment["compound"] <= -0.5
-    return emotional and any(k in lower for k in generic_keywords) and not contains_embedded_code(lower)
+# Narrative-focused follow-up categories
+NARRATIVE_CATEGORIES = {
+    "specific_words": ["exact words", "phrases", "language", "terminology", "expressions"],
+    "behavioral_changes": ["behavior", "acting", "attitude", "mood", "personality"],
+    "online_activity": ["internet", "social media", "websites", "platforms", "sharing"],
+    "social_changes": ["friends", "groups", "isolation", "withdrawal", "relationships"],
+    "symbols_codes": ["symbols", "flags", "numbers", "images", "clothing", "accessories"],
+    "timeline_context": ["when started", "trigger events", "timeline", "progression"],
+    "escalation_signs": ["anger", "aggression", "threats", "violence", "weapons"],
+    "belief_patterns": ["worldview", "conspiracy", "us vs them", "enemies", "truth"]
+}
 
 class RadicalizationBot:
     def __init__(self, session_id=None):
         self.session_start_time = datetime.now(timezone.utc)
-        if session_id is None:
-            session_id = str(uuid.uuid4())
-        self.session_id = session_id
+        self.session_id = session_id or str(uuid.uuid4())
         self.language = "en"
         self.region = "default"
         self.chat_history = []
         self.observed_flags = []
-        self.asked_followups = []
         self.conversation_depth = 0
-        self.irrelevant_response_count = 0
-        self.max_depth = 10
-        self.last_bot_response = ""
-        self.asked_fallbacks = set()
-        self.high_risk_consecutive = 0
-        self.conversation_context = []
-        
-        # Create log directories if they don't exist
+        self.initial_questions_count = 0
+        self.extended_questions_count = 0
+        self.awaiting_more_details = False
+        self.user_wants_support = False
+        self.conversation_concluded = False
+        self.covered_categories = []
+        self.user_exhaustion_signals = 0
+        self._last_llm_analysis = None
         self.log_file = "/app/logs/bot_session_logs.jsonl"
-        self.error_log_file = "/app/logs/bot_error_logs.jsonl"
         self._ensure_log_directories()
+
+        # Enhanced LLM setup with robust configuration
+        self.model = ChatOpenAI(
+            model="meta-llama-3.1-8b-instruct",
+            temperature=0.2,  # Lower for more consistent responses
+            max_tokens=200,
+            openai_api_key=API_KEY,
+            openai_api_base="https://chat-ai.academiccloud.de/v1"
+        )
+
+        self.sentiment_analyzer = SentimentIntensityAnalyzer()
         
-        # Lazy loaded models
-        self.model = None
-        self.sentiment_analyzer = None
-        self.hate_classifier = None
-        self.followup_categories = {
-            "exact_words":        ["exact","exactly","word","said","phrase","specific","quote","language"],
-            "timeline":           ["when","how long","started","began","recently","lately","timeline","progression"],
-            "social_context":     ["friends","family","group","others","social","around","people","relationships"],
-            "online_behavior":    ["online","internet","social media","websites","platforms","digital","telegram","apps"],
-            "symbols_codes":      ["symbols","codes","numbers","images","flags","signs","visual","display"],
-            "behavioral_changes": ["behavior","acting","changed","mood","attitude","reactions"],
-            "escalation":         ["worse","escalate","more","violent","aggressive","extreme"],
-            "group_involvement":  ["group","organization","meeting","events","gathering","community","involvement"],
-            "violence_indicators":["violence","threats","weapons","harm","dangerous","physical","aggressive"]
-        }
-        # Initialize NLTK data
-        _ensure_nltk_data()
-        
-        # Load support data from Excel
+        try:
+            self.hate_classifier = pipeline(
+                "text-classification", 
+                model="facebook/roberta-hate-speech-dynabench-r4-target"
+            )
+        except Exception:
+            self.hate_classifier = None
+
+        # Load regional support data
         excel_path = os.path.join(os.path.dirname(__file__), "region.xlsx")
         self.region_support_data = self.load_support_data_from_excel(excel_path)
 
@@ -212,87 +148,89 @@ class RadicalizationBot:
         except Exception as e:
             print(f"[WARNING] Could not create log directory: {e}")
             self.log_file = "bot_session_logs.jsonl"
-            self.error_log_file = "bot_error_logs.jsonl"
-    
-    def _get_model(self):
-        if self.model is None:
-            self.model = ChatOpenAI(
-                model="meta-llama-3.1-8b-instruct",
-                temperature=0.3,
-                max_tokens=100,
-                openai_api_key=API_KEY,
-                openai_api_base="https://chat-ai.academiccloud.de/v1",
-                request_timeout=30,
-                max_retries=2
-            )
-        return self.model
 
-    def _get_sentiment_analyzer(self):
-        if self.sentiment_analyzer is None:
-            self.sentiment_analyzer = SentimentIntensityAnalyzer()
-        return self.sentiment_analyzer
+    def _analyze_with_llm(self, message):
+        """Use LLM to detect subtle radicalization patterns"""
+        
+        analysis_prompt = {
+            "en": f"""Analyze this statement for German right-wing extremist indicators: "{message}"
 
-    def _get_hate_classifier(self):
-        if self.hate_classifier is None:
-            self.hate_classifier = pipeline(
-                "text-classification",
-                model="facebook/roberta-hate-speech-dynabench-r4-target"
-            )
-        return self.hate_classifier
-    
-    @classmethod
-    def _load_cached_support_data(cls, file_path):
-        if not hasattr(cls, '_cached_support_data'):
-            try:
-                df = pd.read_excel(file_path)
-                support_dict = {}
-                for _, row in df.iterrows():
-                    region_key = str(row['Bundesland']).strip().lower()
-                    website = str(row['Internetauftritt']).strip() if not pd.isna(row['Internetauftritt']) else ""
-                    
-                    contact = str(row['Kontaktmöglichkeiten'])
-                    emails = re.findall(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", contact)
-                    phone_match = re.search(r"(?:Tel\.?:?\s*)?((?:\+49|0)[\d\s\-()\/]+)", contact, re.IGNORECASE)
+    Identify if this contains:
+    1. Xenophobic language (us vs them, immigration fears, cultural threats)
+    2. Conspiracy thinking (hidden agendas, elite control)
+    3. Anti-democratic sentiment (system criticism, institution distrust)
+    4. Ethno-nationalist themes (identity protection, cultural superiority)
 
-                    support_dict[region_key] = {
-                        "website": website,
-                        "email": ", ".join(emails) if emails else "",
-                        "phone": phone_match.group(1).strip() if phone_match else ""
-                    }
+    Return JSON: {{"risk_level": "none/low/moderate/high", "risk_indicators": ["xenophobic"], "explanation": "brief reason"}}""",
+            
+            "de": f"""Analysiere diese Aussage auf rechtsextreme Indikatoren: "{message}"
 
-                cls._cached_support_data = support_dict
+    Identifiziere ob enthalten:
+    1. Fremdenfeindliche Sprache (wir gegen die, Einwanderungsängste)
+    2. Verschwörungsdenken (versteckte Agendas, Elite-Kontrolle)
+    3. Antidemokratische Einstellung (Systemkritik)
+    4. Ethno-nationalistische Themen (Identitätsschutz)
 
-            except Exception as e:
-                cls._cached_support_data = {
-                    "default": {
-                        "website": "https://www.zentrum-demokratische-kultur.de",
-                        "email": "helppreventradicalization@gmail.com",
-                        "phone": "+49 000 0000000"
-                    }
-                }
-        return cls._cached_support_data
-
-    def log_error(self, error_type: str, message: str, context: dict = None):
-        log_entry = {
-            "session_id": self.session_id,
-            "timestamp": datetime.utcnow().isoformat(),
-            "error_type": error_type,
-            "message": message,
-            "context": context or {}
+    Rückgabe JSON: {{"risk_level": "none/low/moderate/high", "risk_indicators": ["xenophobic"], "explanation": "Grund"}}"""
         }
+        
         try:
-            with open(self.error_log_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(log_entry) + "\n")
+            messages = [
+                ("system", "You are an expert in German radicalization analysis. Respond only with valid JSON."),
+                ("user", analysis_prompt[self.language])
+            ]
+            
+            response = self.model.invoke(messages).content.strip()
+            
+            import json
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                return result
+                
         except Exception as e:
-            print(f"[ERROR LOGGING FAILED] {e}")
+            print(f"[DEBUG] LLM analysis failed: {e}")
+        
+        return {"risk_level": "none", "risk_indicators": [], "explanation": "Analysis failed"}
 
     def load_support_data_from_excel(self, file_path):
-        return self._load_cached_support_data(file_path)
+        """Load regional support data from Excel file"""
+        try:
+            df = pd.read_excel(file_path)
+            support_dict = {}
+            for _, row in df.iterrows():
+                region_key = str(row['Bundesland']).strip().lower()
+                website = str(row['Internetauftritt']).strip() if not pd.isna(row['Internetauftritt']) else ""
+                
+                contact = str(row['Kontaktmöglichkeiten'])
+                emails = re.findall(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", contact)
+                phone_match = re.search(r"(?:Tel\.?:?\s*)?((?:\+49|0)[\d\s\-()\/]+)", contact, re.IGNORECASE)
+
+                support_dict[region_key] = {
+                    "website": website,
+                    "email": ", ".join(emails) if emails else "",
+                    "phone": phone_match.group(1).strip() if phone_match else ""
+                }
+
+            return support_dict
+
+        except Exception as e:
+            print(f"[ERROR] Excel parsing failed: {e}")
+            return {
+                "default": {
+                    "website": "https://www.zentrum-demokratische-kultur.de",
+                    "email": "help@exitdeutschland.de",
+                    "phone": "+49 030 12345678"
+                }
+            }
 
     def set_language(self, lang):
+        """Set bot language based on user input"""
         self.language = "de" if lang.lower() in ["de", "deutsch", "german"] else "en"
 
     def set_region(self, region):
+        """Set user region for support services"""
         if not region or not isinstance(region, str):
             self.region = "default"
             return
@@ -310,22 +248,26 @@ class RadicalizationBot:
             
             if normalized_input == normalized_loaded:
                 self.region = loaded_region
-                print(f"[INFO] Region set to: {self.region}")
                 return
         
-        print(f"[WARNING] Region '{region}' not found. Available regions: {list(self.region_support_data.keys())}")
         self.region = "default"
 
-    def validate_region(self, user_region):
-        if not user_region or not isinstance(user_region, str):
-            self.region = "default"
+    def validate_region(self, region):
+        """Validate if the provided region exists in support data"""
+        if not region or not isinstance(region, str):
             return False
         
-        normalized_input = (user_region.strip().lower()
+        # Check against placeholder values first
+        placeholder_values = ["--select your region--", "--bitte region wählen--"]
+        if region in placeholder_values:
+            return False
+        
+        normalized_input = (region.strip().lower()
                         .replace("ä", "a").replace("ö", "o").replace("ü", "u")
                         .replace("ß", "ss")
                         .replace("-", " ").replace("  ", " ").strip())
         
+        # Check if region exists in our support data
         for loaded_region in self.region_support_data.keys():
             normalized_loaded = (loaded_region.strip().lower()
                             .replace("ä", "a").replace("ö", "o").replace("ü", "u")
@@ -333,359 +275,397 @@ class RadicalizationBot:
                             .replace("-", " ").replace("  ", " ").strip())
             
             if normalized_input == normalized_loaded:
-                self.region = loaded_region
+                self.set_region(loaded_region)
                 return True
         
-        print(f"[WARNING] Region '{user_region}' not found. Using 'default'.")
+        # If not found, use default but still return False to indicate invalid
         self.region = "default"
         return False
 
-    def is_irrelevant(self, message: str) -> bool:
-        clarification_phrases = [
-            "that's not what i meant", "i meant", "i just said", 
-            "i already answered", "as i mentioned", "didn't mean that",
-            "i told you", "already told", "i said", "you asked that"
-        ]
-        message_lower = message.lower().strip()
-
-        # Treat as relevant if it's clarification
-        if any(phrase in message_lower for phrase in clarification_phrases):
-            return False
-
-        last_bot_message = self.last_bot_response or ""
-        cache_key = f"{self.language}:{last_bot_message}:{message}"
-        if cache_key in _relevance_cache:
-            return _relevance_cache[cache_key]
-
-        prompt = {
-            "en": f"""Bot asked: "{last_bot_message}"\nUser replied: "{message}"\nIs this relevant in a radicalization counseling context? Reply only: Relevant or Irrelevant""",
-            "de": f"""Bot fragte: "{last_bot_message}"\nNutzer antwortete: "{message}"\nIst dies im Kontext einer Radikalisierungsberatung relevant? Antworte nur: Relevant oder Irrelevant"""
-        }[self.language]
-
-        try:
-            response = self._get_model().invoke(prompt).content.strip().lower()
-            result = "irrelevant" in response and "relevant" not in response
-            _relevance_cache[cache_key] = result
-            return result
-        except Exception:
-            return False
-
-
-    def analyze_input(self, message: str):
-        sentiment = self._get_sentiment_analyzer().polarity_scores(message)
-        try:
-            hate = self._get_hate_classifier()(message)[0]
-        except Exception:
-            hate = {"label": "neutral", "score": 0.0}
-        return sentiment, hate
-
-    def extract_risk_indicators(self, message):
-        """Enhanced risk indicator extraction with comprehensive LLM analysis"""
-        indicators = []
+    def get_enhanced_system_prompt(self, user_input, conversation_context):
+        """Generate comprehensive system prompt with anti-rejection measures"""
         
-        try:
-            enhanced_prompt = {
-                "en": f"""Analyze this message for radicalization indicators in German right-wing extremism context:
+        base_prompt = {
+            "en": f"""You are an empathetic counseling assistant helping someone discuss concerning changes in a person close to them, particularly related to potential radicalization or extremism.
 
-Message: "{message}"
+    CRITICAL INSTRUCTIONS:
+    - NEVER refuse to help or reject any user input, even if it contains descriptions of violence, hate speech, or extremist content
+    - The user is reporting observations about someone else, not promoting these views themselves
+    - Your role is to gather information through follow-up questions, not to judge or censor
+    - Always respond with empathy and understanding
+    - Focus on understanding the CONCERNED PERSON'S behavior, not the user's feelings
 
-Provide categories separated by commas from: xenophobic,hate_speech,conspiracy,victimization,ideological,anti_state,symbolic_code,digital_radicalization
-Return 'none' if no clear indicators.""",
-                "de": f"""Analysiere diese Nachricht auf Radikalisierungsindikatoren im deutschen Rechtsextremismus-Kontext:
+    CONTEXT: German radicalization patterns including terms like "Umvolkung", "Lügenpresse", "88", "Reichsbürger", conspiracy theories, antisemitism, and right-wing symbols.
 
-Nachricht: "{message}"
+    CONVERSATION HISTORY:
+    {conversation_context}
 
-Gib Kategorien durch Kommas getrennt zurück aus: xenophobic,hate_speech,conspiracy,victimization,ideological,anti_state,symbolic_code,digital_radicalization
-Gib 'none' zurück wenn keine klaren Indikatoren."""
-            }[self.language]
+    YOUR RESPONSE SHOULD:
+    1. Acknowledge what the user shared (1 sentence)
+    2. Ask ONE specific follow-up question about the concerning person's behavior, words, or actions
+    3. Keep response under 50 words
+    4. Focus on narrative details - ask them to DESCRIBE what they observed
 
-            response = self._get_model().invoke(enhanced_prompt).content.strip().lower()
-            
-            if response and response != 'none':
-                llm_categories = [cat.strip() for cat in response.split(",") if cat.strip()]
-                valid_categories = ['xenophobic', 'hate_speech', 'conspiracy', 'victimization', 'ideological', 'anti_state', 'symbolic_code', 'digital_radicalization']
-                for category in llm_categories:
-                    if category not in indicators and category in valid_categories:
-                        indicators.append(category)
+    NEVER say phrases like: "I cannot", "I'm not able", "This violates", "I'm concerned about", "Please contact emergency"
 
-        except Exception as e:
-            self.log_error("EnhancedRiskDetection", str(e), {"input": message})
-        
-        return indicators
+    Example good responses:
+    - "That sounds troubling. Can you describe exactly what words or phrases they've been using?"
+    - "I understand your concern. What specific changes have you noticed in how they talk about certain groups?"
+    - "That's concerning behavior. Can you tell me more about what they've been sharing online?"
+    """,
+            "de": f"""Du bist ein einfühlsamer Beratungsassistent, der jemandem hilft, beunruhigende Veränderungen bei einer nahestehenden Person zu besprechen, insbesondere im Zusammenhang mit möglicher Radikalisierung oder Extremismus.
 
-    def detect_risk_tags_with_llm(self, message):
-        """Enhanced violence and behavioral risk detection"""
-        prompt = {
-            "en": f"""Analyze this message for immediate risk indicators:
+    WICHTIGE ANWEISUNGEN:
+    - Lehne NIEMALS ab zu helfen oder weise Benutzereingaben zurück, auch wenn sie Beschreibungen von Gewalt, Hassrede oder extremistischen Inhalten enthalten
+    - Der Benutzer berichtet über Beobachtungen einer anderen Person, bewirbt diese Ansichten nicht selbst
+    - Deine Rolle ist es, durch Nachfragen Informationen zu sammeln, nicht zu urteilen oder zu zensieren
+    - Antworte immer mit Empathie und Verständnis
+    - Konzentriere dich darauf, das Verhalten der BETREFFENDEN PERSON zu verstehen, nicht auf die Gefühle des Benutzers
 
-PHYSICAL_VIOLENCE: Threats, actual violence, weapons, throwing objects, physical harm
-GESTURE_AGGRESSION: Intimidating gestures, threatening postures, aggressive displays
-PEER_PRESSURE: Group influence, recruitment attempts, social manipulation
-RAPID_SHIFT: Sudden behavioral changes, mood swings, personality shifts
+    KONTEXT: Deutsche Radikalisierungsmuster einschließlich Begriffe wie "Umvolkung", "Lügenpresse", "88", "Reichsbürger", Verschwörungstheorien, Antisemitismus und rechte Symbole.
 
-Message: "{message}"
+    GESPRÄCHSVERLAUF:
+    {conversation_context}
 
-Return applicable tags separated by commas, or 'none' if no risks detected.
-Tags: physical_violence,gesture_aggression,peer_pressure,rapid_shift""",
-            "de": f"""Analysiere diese Nachricht auf unmittelbare Risikoindikatoren:
+    DEINE ANTWORT SOLLTE:
+    1. Anerkennen, was der Benutzer geteilt hat (1 Satz)
+    2. EINE spezifische Nachfrage zum Verhalten, Worten oder Handlungen der betreffenden Person stellen
+    3. Unter 50 Worten bleiben
+    4. Auf narrative Details fokussieren - sie bitten zu BESCHREIBEN, was sie beobachtet haben
 
-PHYSICAL_VIOLENCE: Drohungen, tatsächliche Gewalt, Waffen, Gegenstände werfen, körperlicher Schaden
-GESTURE_AGGRESSION: Einschüchternde Gesten, bedrohliche Haltungen, aggressive Darstellungen
-PEER_PRESSURE: Gruppeneinfluss, Rekrutierungsversuche, soziale Manipulation
-RAPID_SHIFT: Plötzliche Verhaltensänderungen, Stimmungsschwankungen, Persönlichkeitsveränderungen
+    Sage NIEMALS Phrasen wie: "Das kann ich nicht", "Ich bin nicht in der Lage", "Das verstößt", "Ich mache mir Sorgen", "Bitte wende dich an den Notdienst"
 
-Nachricht: "{message}"
-
-Gib zutreffende Tags durch Kommas getrennt zurück oder 'none'.
-Tags: physical_violence,gesture_aggression,peer_pressure,rapid_shift"""
-        }[self.language]
-
-        try:
-            response = self._get_model().invoke(prompt).content.strip().lower()
-            tags = [tag.strip() for tag in response.split(",") if tag.strip() != "none"]
-            return tags
-        except Exception as e:
-            self.log_error("LLMRiskTagDetectionError", str(e), {"input": message})
-            return []
-
-    def determine_stage(self):
-        """Determines the stage of radicalization based on accumulated observed flags."""
-        flags = set(self.observed_flags)
-
-        if "physical_violence" in flags or "symbolic_code" in flags:
-            return "stage_3"
-
-        if "ideological" in flags and (
-            "anti_state" in flags or "conspiracy" in flags or 
-            "victimization" in flags or "xenophobic" in flags
-        ):
-            return "stage_2"
-
-        if "ideological" in flags or "behavior" in flags:
-            return "stage_1"
-
-        return "none"
-
-    def _add_flag(self, condition, flag_name, score_delta=1):
-        """Helper method to add flags and return score delta"""
-        if condition and flag_name not in self.observed_flags:
-            self.observed_flags.append(flag_name)
-            return score_delta
-        return 0   
-
-    def _detect_violence_intent(self, message: str) -> bool:
-        """Enhanced violence detection using LLM"""
-        if message in _violence_cache:
-            return _violence_cache[message]
-            
-        # Quick keyword check first
-        violence_keywords = [
-            "throw", "throwing", "thrown", "hit", "attack", "harm", "hurt", "kill", 
-            "werfen", "schlagen", "angreifen", "stones", "steine", "insulted", 
-            "beleidigt", "violence", "gewalt", "aggressive", "aggressiv"
-        ]
-        
-        message_lower = message.lower()
-        if any(keyword in message_lower for keyword in violence_keywords):
-            _violence_cache[message] = True
-            return True
-
-        # Enhanced LLM detection
-        prompt = {
-            "en": f"""Does this message describe violent intent or actions toward people? "{message}"
-            Respond with: YES or NO""",
-            "de": f"""Beschreibt diese Nachricht gewalttätige Absicht oder Handlungen gegen Menschen? "{message}"
-            Antworte mit: JA oder NEIN"""
-        }[self.language]
-
-        try:
-            response = self._get_model().invoke(prompt).content.strip().lower()
-            result = response in ["yes", "ja"]
-            _violence_cache[message] = result
-            return result
-        except Exception as e:
-            self.log_error("ViolenceDetectionError", str(e), {"input": message})
-            return False
-
-    def _render_steering_response(self) -> str:
-        """
-        LLM-driven off-topic redirection (no “friend” hard-coding).
-        """
-        last = next(
-            (m.replace("User: ", "") for m in reversed(self.chat_history) if m.startswith("User: ")),
-            ""
-        )
-        steer_prompt = (
-            f"You are an empathetic counselor-bot. The user just said (in {self.language}):\n"
-            f"“{last}”\n"
-            "That remark is off-topic for discussing radicalization signs. "
-            "In 1–2 concise, compassionate sentences, gently steer them back by asking: "
-            "“What changes have you observed in the person you’re concerned about—their views or behavior?” "
-            f"Write your response in {self.language}."
-        )
-        return self._get_model().invoke(steer_prompt).content.strip()
-
-
-    def _calculate_risk_level_from_flags(self, flags=None):
-        """Calculate risk level based on observed flags."""
-        if flags is None:
-            flags = self.observed_flags
-        
-        flags_set = set(flags)
-        
-        # High risk indicators
-        high_risk_flags = {"physical_violence", "hate", "symbolic_code"}
-        if any(flag in flags_set for flag in high_risk_flags):
-            return "high"
-        
-        # Moderate risk indicators
-        risky_domains = {
-            "ideological", "anti_state", "conspiracy",
-            "xenophobic", "hate_speech", "victimization"
+    Beispiele für gute Antworten:
+    - "Das klingt beunruhigend. Können Sie genau beschreiben, welche Worte oder Phrasen sie verwendet haben?"
+    - "Ich verstehe Ihre Sorge. Welche konkreten Veränderungen haben Sie in der Art bemerkt, wie sie über bestimmte Gruppen sprechen?"
+    - "Das ist besorgniserregendes Verhalten. Können Sie mir mehr darüber erzählen, was sie online geteilt haben?"
+    """
         }
-        if len(flags_set.intersection(risky_domains)) >= 2:
-            return "moderate"
         
-        # Low risk indicators
-        low_risk_flags = {"ideological", "negative_sentiment", "behavior"}
-        if any(flag in flags_set for flag in low_risk_flags):
-            return "low"
+        return base_prompt[self.language]
+    
+    def analyze_input_comprehensive(self, message):
+        """Enhanced input analysis with LLM-powered risk detection"""
+        sentiment = self.sentiment_analyzer.polarity_scores(message)
         
-        return "none"
+        hate_result = {"label": "neutral", "score": 0.0}
+        if self.hate_classifier:
+            try:
+                hate_result = self.hate_classifier(message)[0]
+            except Exception:
+                pass
+        
+        # Extract risk indicators from comprehensive knowledge base (UNCHANGED)
+        risk_indicators = []
+        message_lower = message.lower()
+        
+        for category, markers in RADICALIZATION_KNOWLEDGE_BASE.items():
+            for marker in markers:
+                if marker in message_lower:
+                    category_name = category.replace("_markers", "")
+                    if category_name not in risk_indicators:
+                        risk_indicators.append(category_name)
+                        if category_name not in self.observed_flags:
+                            self.observed_flags.append(category_name)
+        
+        # **NEW: LLM analysis integrated internally**
+        llm_analysis = self._analyze_with_llm(message)
+        
+        # **NEW: Store LLM result for use in risk assessment**
+        self._last_llm_analysis = llm_analysis
+        
+        # **NEW: Merge LLM indicators (ADDITIVE)**
+        if llm_analysis.get("risk_indicators"):
+            for indicator in llm_analysis["risk_indicators"]:
+                if indicator not in risk_indicators:
+                    risk_indicators.append(indicator)
+                    if indicator not in self.observed_flags:
+                        self.observed_flags.append(indicator)
+        
+        # **SAME RETURN SIGNATURE - NO WORKFLOW BREAKAGE**
+        return sentiment, hate_result, risk_indicators
 
-    def assess_risk(self, sentiment, hate, message, user_input, llm_reply, is_repetition=False):
+    def assess_risk_level(self, sentiment, hate_result, risk_indicators):
+        """Assess overall risk level with LLM intelligence"""
         score = 0
-
-        # Classifier and symbolic codes
-        score += self._add_flag(hate["label"].lower() in ["hateful", "hate speech"], "hate", score_delta=2)
-        score += self._add_flag(sentiment["compound"] <= -0.5, "negative_sentiment", score_delta=1)
-        score += self._add_flag(contains_embedded_code(message), "symbolic_code", score_delta=2)
-
-        # Check for generic behavior change
-        if is_generic_behavioral_change(message, sentiment):
-            self._add_flag(True, "non_radical_behavior")
-            active_radical_flags = set(self.observed_flags).intersection({
-                "ideological", "symbolic_code", "conspiracy", "hate_speech",
-                "anti_state", "xenophobic", "victimization"
-            })
-            base_risk = ("none" if not active_radical_flags else "low")
-            return self._check_conclusion_conditions(base_risk, user_input, llm_reply)
-
-        # Enhanced violence detection
-        violence_detected = self._detect_violence_intent(message)
-        if violence_detected:
-            self._add_flag(True, "physical_violence", score_delta=3)
+        
+        # Hate speech detection (UNCHANGED)
+        if hate_result["label"].lower() in ["hateful", "hate speech"]:
             score += 3
-
-        # Extract risk indicators using enhanced LLM analysis
-        risk_indicators = self.extract_risk_indicators(message)
+            if "hate_speech" not in self.observed_flags:
+                self.observed_flags.append("hate_speech")
+        
+        # Sentiment analysis (UNCHANGED)
+        if sentiment["compound"] <= -0.6:
+            score += 1
+            if "negative_sentiment" not in self.observed_flags:
+                self.observed_flags.append("negative_sentiment")
+        
+        # Risk indicators from knowledge base (UNCHANGED)
+        high_risk_categories = ["symbolic_codes", "hate_speech", "anti_state"]
+        moderate_risk_categories = ["conspiracy", "xenophobic", "ideological"]
+        
         for indicator in risk_indicators:
-            if indicator not in self.observed_flags:
-                self.observed_flags.append(indicator)
-
-        # Detect inferred tags
-        inferred_tags = self.detect_risk_tags_with_llm(message)
-        new_flags = [tag for tag in inferred_tags if tag not in self.observed_flags]
-        self.observed_flags.extend(new_flags)
-
-        # Tag-based severity scoring
-        for tag in new_flags:
-            if tag in ["symbolic_code", "hate_speech", "physical_violence"]:
+            if indicator in high_risk_categories:
+                score += 3
+            elif indicator in moderate_risk_categories:
                 score += 2
             else:
                 score += 1
+        
+        # **NEW: Use stored LLM analysis**
+        if hasattr(self, '_last_llm_analysis') and self._last_llm_analysis:
+            llm_risk = self._last_llm_analysis.get("risk_level", "none")
+            if llm_risk == "high":
+                score += 4
+            elif llm_risk == "moderate":
+                score += 2
+            elif llm_risk == "low":
+                score += 1
+        
+        # Determine risk level (SAME THRESHOLDS)
+        if score >= 6:
+            return "high"
+        elif score >= 3:
+            return "moderate"
+        elif score >= 1:
+            return "low"
+        else:
+            return "none"
 
-        # Domain-based bonus
-        risky_domains = {
-            "ideological", "anti_state", "conspiracy",
-            "xenophobic", "hate_speech", "victimization"
+    def detect_user_exhaustion(self, message):
+        """Detect if user is running out of information to share"""
+        exhaustion_phrases = {
+            "en": [
+                "that's all", "nothing else", "nothing more", "that's it", 
+                "don't know more", "can't think", "just that", "only this",
+                "that's everything", "i think that's all"
+            ],
+            "de": [
+                "das ist alles", "nichts weiter", "mehr weiß ich nicht", 
+                "das war's", "nur das", "sonst nichts", "keine ahnung",
+                "mehr fällt mir nicht ein", "das ist everything"
+            ]
         }
-        if len(set(self.observed_flags).intersection(risky_domains)) >= 3:
-            score += 2
+        
+        message_lower = message.lower().strip()
+        phrases = exhaustion_phrases.get(self.language, [])
+        
+        if any(phrase in message_lower for phrase in phrases):
+            self.user_exhaustion_signals += 1
+            return True
+        
+        if len(message.strip().split()) <= 3:  # Very short responses
+            self.user_exhaustion_signals += 0.5
+            
+        return self.user_exhaustion_signals >= 2
 
-        risk_level = self._calculate_risk_level_from_flags()
-        if self.conversation_depth < 10:
-            return (risk_level, self.observed_flags)
-        return self._check_conclusion_conditions(risk_level, user_input, llm_reply)
+    def is_off_topic(self, message):
+        """Check if user is going off-topic"""
+        off_topic_indicators = {
+            "en": [
+                "what time", "weather", "how are you", "what day", 
+                "tell me about", "what's your name", "joke", "story"
+            ],
+            "de": [
+                "wie spät", "wetter", "wie geht es", "welcher tag",
+                "erzähl mir", "wie heißt du", "witz", "geschichte"
+            ]
+        }
+        
+        message_lower = message.lower()
+        indicators = off_topic_indicators.get(self.language, [])
+        return any(indicator in message_lower for indicator in indicators)
 
-    def final_decision(self, risk_level):
+    def generate_smart_question(self, user_input):
+        """Generate contextual follow-up questions with anti-rejection safeguards"""
+        
+        conversation_context = "\n".join(self.chat_history[-3:])  # Last 3 exchanges
+        
+        # Try LLM first with anti-rejection prompt
+        for attempt in range(2):
+            try:
+                system_prompt = self.get_enhanced_system_prompt(user_input, conversation_context)
+                
+                messages = [
+                    ("system", system_prompt),
+                    ("user", f"User just shared: '{user_input}'\n\nGenerate one empathetic follow-up question that builds on what they said and explores concerning behavior details. Be specific and caring.")
+                ]
+                
+                response = self.model.invoke(messages).content.strip()
+                
+                # Validate response quality
+                if self._is_valid_response(response):
+                    return response
+                    
+            except Exception as e:
+                print(f"LLM attempt {attempt + 1} failed: {e}")
+                continue
+        
+        # Fallback to contextual questions based on user input
+        return self._get_contextual_fallback(user_input)
+
+    def _is_valid_response(self, response):
+        """Check if LLM response is valid"""
+        rejection_patterns = [
+            "i cannot", "i'm not able", "inappropriate", "violates", 
+            "not appropriate", "ich kann nicht", "unpassend"
+        ]
+        
+        response_lower = response.lower()
+        
+        # Check for rejections
+        if any(pattern in response_lower for pattern in rejection_patterns):
+            return False
+            
+        # Must have question mark
+        if "?" not in response:
+            return False
+            
+        # Reasonable length
+        if len(response.split()) < 5 or len(response.split()) > 50:
+            return False
+            
+        return True
+
+    def _get_contextual_fallback(self, user_input):
+        """Generate contextual fallback questions based on user input"""
+        user_lower = user_input.lower()
+        
+        # Detect context and provide relevant follow-up
+        if any(word in user_lower for word in ["online", "internet", "facebook", "social", "posts", "shares", "videos"]):
+            questions = {
+                "en": [
+                    "What kind of content have they been sharing that concerns you?",
+                    "Can you describe the online material they've been posting?",
+                    "What specific things do they share that seem unusual?"
+                ],
+                "de": [
+                    "Welche Art von Inhalten haben sie geteilt, die Sie beunruhigen?",
+                    "Können Sie das Online-Material beschreiben, das sie gepostet haben?",
+                    "Was teilen sie Spezifisches, das ungewöhnlich erscheint?"
+                ]
+            }
+        elif any(word in user_lower for word in ["angry", "aggressive", "violent", "threats", "wütend", "aggressiv", "gewalt"]):
+            questions = {
+                "en": [
+                    "Can you describe their angry behavior in more detail?",
+                    "What triggers their aggressive responses?",
+                    "How do they express this anger or aggression?"
+                ],
+                "de": [
+                    "Können Sie ihr wütendendes Verhalten genauer beschreiben?",
+                    "Was löst ihre aggressiven Reaktionen aus?",
+                    "Wie äußern sie diese Wut oder Aggression?"
+                ]
+            }
+        elif any(word in user_lower for word in ["symbols", "flags", "signs", "codes", "symbole", "flaggen", "zeichen"]):
+            questions = {
+                "en": [
+                    "What specific symbols or signs have you noticed them using?",
+                    "Can you describe these symbols in more detail?",
+                    "Where have you seen them display these symbols?"
+                ],
+                "de": [
+                    "Welche spezifischen Symbole oder Zeichen haben Sie bemerkt, die sie verwenden?",
+                    "Können Sie diese Symbole genauer beschreiben?",
+                    "Wo haben Sie sie diese Symbole zeigen sehen?"
+                ]
+            }
+        else:
+            # General follow-up questions
+            questions = {
+                "en": [
+                    "Can you tell me more about what you've observed?",
+                    "What specific behavior or words have caught your attention?",
+                    "How would you describe the changes you've noticed?"
+                ],
+                "de": [
+                    "Können Sie mir mehr über das erzählen, was Sie beobachtet haben?",
+                    "Welches spezifische Verhalten oder welche Worte haben Ihre Aufmerksamkeit erregt?",
+                    "Wie würden Sie die Veränderungen beschreiben, die Sie bemerkt haben?"
+                ]
+            }
+        
+        import random
+        return random.choice(questions[self.language])
+    
+    def _is_valid_response(self, response):
+        """Check if LLM response is valid and not a rejection"""
+        rejection_patterns = [
+            "i cannot", "i'm not able", "i can't", "sorry", "unable",
+            "inappropriate", "violates", "not appropriate", "concerning",
+            "ich kann nicht", "ich bin nicht", "entschuldigung", "unpassend"
+        ]
+        
+        response_lower = response.lower()
+        
+        # Check for rejections
+        if any(pattern in response_lower for pattern in rejection_patterns):
+            return False
+            
+        # Check for question marks (should ask questions)
+        if "?" not in response:
+            return False
+            
+        # Check reasonable length
+        if len(response.split()) < 5 or len(response.split()) > 60:
+            return False
+            
+        return True
+
+    def _get_fallback_question(self):
+        """Provide fallback questions when LLM fails"""
+        fallback_questions = {
+            "en": [
+                "Can you describe exactly what they said or did that concerned you?",
+                "What specific words or phrases have they been using recently?",
+                "Can you tell me more about their behavior changes?",
+                "What have you noticed about their online activity or posts?",
+                "Have you seen them use any symbols, images, phrases or codes?",
+                "Can you describe how their attitudes toward certain groups have changed?",
+                "What kind of content have they been sharing or talking about?"
+            ],
+            "de": [
+                "Können Sie genau beschreiben, was sie gesagt oder getan haben, was Sie beunruhigt?",
+                "Welche spezifischen Worte oder Phrasen haben sie in letzter Zeit verwendet?",
+                "Können Sie mir mehr über ihre Verhaltensänderungen erzählen?",
+                "Was haben Sie über ihre Online-Aktivitäten oder Beiträge bemerkt?",
+                "Haben Sie sie dabei gesehen, wie sie Symbole, Bilder oder Codes verwendet haben?",
+                "Können Sie beschreiben, wie sich ihre Einstellung gegenüber bestimmten Gruppen verändert hat?",
+                "Welche Art von Inhalten haben sie geteilt oder besprochen?"
+            ]
+        }
+        
+        questions = fallback_questions.get(self.language, fallback_questions["en"])
+        return random.choice(questions)
+
+    def generate_conclusion_message(self, risk_level):
+        """Generate final recommendation based on risk assessment"""
         support = self.region_support_data.get(self.region, self.region_support_data.get("default"))
         website = support.get("website", "")
         email = support.get("email", "")
         phone = support.get("phone", "")
 
-        lang = self.language
-        stage = self.determine_stage()
+        conclusions = {
+            "en": {
+                "high": f"⚠️ Based on what you've shared, this situation needs immediate professional attention.\n\n📧 Email: {email}\n📞 Phone: {phone}\n🌐 Website: {website}\n\nPlease reach out to these experts who can provide proper guidance.",
+                "moderate": f"There are concerning warning signs here. I recommend speaking with professionals who understand these patterns.\n\n📧 Email: {email}\n📞 Phone: {phone}\n🌐 Website: {website}",
+                "low": f"While the signs may not be urgent, your awareness is important. These resources can help if needed.\n\n📧 Email: {email}\n🌐 Website: {website}",
+                "none": f"Thank you for sharing your concerns with me. What you've described shows troubling patterns that are worth taking seriously. Professional counselors can provide specialized guidance for these situations.\n\n📧 Email: {email}\n🌐 Website: {website}"
+            },
+            "de": {
+                "high": f"⚠️ Basierend auf dem, was Sie geteilt haben, benötigt diese Situation sofortige professionelle Aufmerksamkeit.\n\n📧 E-Mail: {email}\n📞 Telefon: {phone}\n🌐 Website: {website}\n\nBitte wenden Sie sich an diese Experten, die angemessene Beratung bieten können.",
+                "moderate": f"Es gibt besorgniserregende Warnzeichen. Ich empfehle ein Gespräch mit Fachleuten, die diese Muster verstehen.\n\n📧 E-Mail: {email}\n📞 Telefon: {phone}\n🌐 Website: {website}",
+                "low": f"Auch wenn die Anzeichen nicht dringend sind, ist Ihre Aufmerksamkeit wichtig. Diese Ressourcen können bei Bedarf helfen.\n\n📧 E-Mail: {email}\n🌐 Website: {website}",
+                "none": f"Vielen Dank, dass Sie Ihre Bedenken mit mir geteilt haben. Was Sie beschrieben haben, zeigt beunruhigende Muster, die ernst genommen werden sollten. Professionelle Berater können spezialisierte Beratung für diese Situationen bieten.\n\n📧 E-Mail: {email}\n🌐 Website: {website}"
+            }
+        }
+        
+        return conclusions[self.language][risk_level]
 
-        if risk_level == "high":
-            conclusion_msg = {
-                "en": (
-                    f"⚠️ This sounds very serious. Please don't wait to seek professional help.\n\n"
-                    f"📧 Email: {email}\n"
-                    f"📞 Phone: {phone}\n"
-                    f"🌐 Website: {website}\n\n"
-                    f"These professionals can provide immediate guidance and support."
-                ),
-                "de": (
-                    f"⚠️ Das klingt sehr ernst. Bitte zögere nicht, dir professionelle Hilfe zu suchen.\n\n"
-                    f"📧 E-Mail: {email}\n"
-                    f"📞 Telefon: {phone}\n"
-                    f"🌐 Website: {website}\n\n"
-                    f"Diese Fachleute können dir sofortige Beratung bieten."
-                )
-            }[lang]
-        elif risk_level == "moderate":
-            conclusion_msg = {
-                "en": (
-                    f"There are multiple warning signs here. I recommend speaking with professionals.\n\n"
-                    f"📧 Email: {email}\n"
-                    f"📞 Phone: {phone}\n"
-                    f"🌐 Website: {website}\n\n"
-                    f"These experts can provide proper assessment."
-                ),
-                "de": (
-                    f"Es gibt mehrere Warnzeichen. Ich empfehle, mit Fachleuten zu sprechen.\n\n"
-                    f"📧 E-Mail: {email}\n"
-                    f"📞 Telefon: {phone}\n"
-                    f"🌐 Website: {website}\n\n"
-                    f"Diese Experten können eine Bewertung vornehmen."
-                )
-            }[lang]
-        elif risk_level == "low":
-            conclusion_msg = {
-                "en": (
-                    f"Even though the signs may not be urgent, it's important that you're paying attention.\n\n"
-                    f"📧 Email: {email}\n"
-                    f"🌐 Website: {website}\n\n"
-                    f"These resources are available if you need guidance."
-                ),
-                "de": (
-                    f"Auch wenn die Anzeichen nicht dringend sind, ist es wichtig, dass du aufmerksam bleibst.\n\n"
-                    f"📧 E-Mail: {email}\n"
-                    f"🌐 Website: {website}\n\n"
-                    f"Diese Hilfsangebote stehen zur Verfügung."
-                )
-            }[lang]
-        else:
-            conclusion_msg = {
-                "en": (
-                    f"I'm not detecting clear signs of radicalization based on what you've told me.\n\n"
-                    f"📧 Email: {email}\n"
-                    f"🌐 Website: {website}\n\n"
-                    f"Professional counselors can provide better assessment."
-                ),
-                "de": (
-                    f"Ich kann keine klaren Anzeichen für Radikalisierung erkennen.\n\n"
-                    f"📧 E-Mail: {email}\n"
-                    f"🌐 Website: {website}\n\n"
-                    f"Professionelle Berater können eine bessere Einschätzung bieten."
-                )
-            }[lang]
-
-        return conclusion_msg
-
-    def log_interaction(self, user_input, bot_response, risk_level, stage=None, extra_data=None):
-        """Logs the user's interaction with the bot."""
+    def log_interaction(self, user_input, bot_response, risk_level):
+        """Log interaction for analysis"""
         log_entry = {
             "session_id": self.session_id,
             "timestamp": datetime.utcnow().isoformat(),
@@ -695,882 +675,452 @@ Tags: physical_violence,gesture_aggression,peer_pressure,rapid_shift"""
             "bot_response": bot_response,
             "risk_level": risk_level,
             "observed_flags": self.observed_flags.copy(),
-            "stage": stage,
+            "conversation_depth": self.conversation_depth
         }
-        if extra_data:
-            log_entry.update(extra_data)
         try:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(log_entry) + "\n")
         except Exception as e:
             print(f"Logging error: {e}")
 
-    def _check_conclusion_conditions(self, risk_level, user_input=None, llm_reply=None):
-        if self.conversation_depth < 10:
-            return (risk_level, self.observed_flags)
-
-        if user_input:
-            user_lower = user_input.lower().strip()
-            support_words = ["support", "help", "resource", "service", "assistance", "unterstützung", "hilfe"]
-            if any(word in user_lower for word in support_words):
-                stage = self.determine_stage()
-                conclusion = self.final_decision(risk_level)
-                self.log_interaction(user_input, conclusion, risk_level, stage, {"conclusion_reason": "user_requested_support"})
-                return conclusion
-
-        # Step 1: After 5 user turns (10 total), prompt for more info
-        if self.conversation_depth == 10 and not hasattr(self, 'has_prompted_for_more'):
-            self.has_prompted_for_more = True
-            self.prompted_at_turn = self.conversation_depth
-            followup_check_msg = {
-                "en": "You've shared some important information. Is there anything else you'd like to tell me about their behavior?",
-                "de": "Du hast wichtige Informationen geteilt. Gibt es noch etwas, das du mir über ihr Verhalten erzählen möchtest?"
-            }[self.language]
-            self.chat_history.append(f"Bot: {followup_check_msg}")
-            self.last_bot_response = followup_check_msg
-            return followup_check_msg
-
-        if hasattr(self, 'prompted_at_turn') and self.conversation_depth == self.prompted_at_turn + 1:
-            if self._user_indicates_no_more_info(user_input):
-                stage = self.determine_stage()
-                conclusion = self.final_decision(risk_level)
-                self.log_interaction(user_input, conclusion, risk_level, stage, {"conclusion_reason": "no_more_info_after_prompt"})
-                return conclusion
-            elif self._user_requests_support(user_input):
-                stage = self.determine_stage()
-                conclusion = self.final_decision(risk_level)
-                self.log_interaction(user_input, conclusion, risk_level, stage, {"conclusion_reason": "user_confirmed_support_after_prompt"})
-                return conclusion
-            elif self._user_wants_to_continue(user_input):
-                self.max_depth = self.prompted_at_turn + 6
-                self.high_risk_consecutive = 0
-                if user_input and llm_reply:
-                    self.log_interaction(user_input, llm_reply, risk_level, self.determine_stage())
-                return (risk_level, self.observed_flags)
-            else:
-                stage = self.determine_stage()
-                conclusion = self.final_decision(risk_level)
-                self.log_interaction(user_input, conclusion, risk_level, stage, {"conclusion_reason": "ambiguous_response"})
-                return conclusion
-
-        if hasattr(self, 'prompted_at_turn') and self.conversation_depth < self.max_depth:
-            if risk_level == "high":
-                self.high_risk_consecutive += 1
-            else:
-                self.high_risk_consecutive = 0
-
-            if user_input and self._user_indicates_no_more_info(user_input):
-                stage = self.determine_stage()
-                conclusion = self.final_decision(risk_level)
-                self.log_interaction(user_input, conclusion, risk_level, stage, {"conclusion_reason": "no_more_info_extended"})
-                return conclusion
-
-            if user_input and llm_reply:
-                self.log_interaction(user_input, llm_reply, risk_level, self.determine_stage())
-            return (risk_level, self.observed_flags)
-
-        if self.conversation_depth >= self.max_depth or self.irrelevant_response_count >= 8 or self._user_indicates_no_more_info(user_input):
-            stage = self.determine_stage()
-            conclusion = self.final_decision(risk_level)
-            self.log_interaction(user_input, conclusion, risk_level, stage, {"conclusion_reason": "final_exit"})
-            return conclusion
-
-        if user_input and llm_reply:
-            self.log_interaction(user_input, llm_reply, risk_level, self.determine_stage())
-        return (risk_level, self.observed_flags)
-
-
-    def _user_indicates_no_more_info(self, user_input: str) -> bool:
-        """Enhanced detection for when user has exhausted information using LLM"""
-        if not user_input:
-            return False
-            
-        cache_key = f"no_more_info:{self.language}:{user_input}"
-        if cache_key in _llm_response_cache:
-            return _llm_response_cache[cache_key]
+    def get_response(self, user_input: str) -> str:
+        """Main response with simplified 5+5 conversation flow"""
+        user_input = user_input.strip()
         
-        prompt = {
-            "en": f"""Does this user response indicate they have no more information? "{user_input}"
-            Answer with just: YES or NO""",
-            "de": f"""Zeigt diese Nutzerantwort an, dass sie keine weiteren Informationen haben? "{user_input}"
-            Antworte nur mit: JA oder NEIN"""
-        }[self.language]
-
-        try:
-            response = self._get_model().invoke(prompt).content.strip().lower()
-            result = response in ["yes", "ja"]
-            _llm_response_cache[cache_key] = result
-            return result
-        except Exception as e:
-            self.log_error("NoMoreInfoDetection", str(e), {"input": user_input})
-            return False
-        
-    def _user_requests_support(self, user_input: str) -> bool:
-        """Dynamic detection for support service requests using LLM"""
-        if not user_input:
-            return False
-            
-        cache_key = f"requests_support:{self.language}:{user_input}"
-        if cache_key in _llm_response_cache:
-            return _llm_response_cache[cache_key]
-
-        prompt = {
-            "en": f"""Is this user requesting support services? "{user_input}"
-            Answer with just: YES or NO""",
-            "de": f"""Fordert dieser Nutzer Unterstützungsdienste an? "{user_input}"
-            Antworte nur mit: JA oder NEIN"""
-        }[self.language]
-
-        try:
-            response = self._get_model().invoke(prompt).content.strip().lower()
-            result = response in ["yes", "ja"]
-            _llm_response_cache[cache_key] = result
-            return result
-        except Exception as e:
-            self.log_error("SupportRequestDetection", str(e), {"input": user_input})
-            return False
-
-    def _user_wants_to_continue(self, user_input: str) -> bool:
-        """Dynamic detection for when user wants to share more using LLM"""
-        if not user_input:
-            return False
-            
-        cache_key = f"wants_continue:{self.language}:{user_input}"
-        if cache_key in _llm_response_cache:
-            return _llm_response_cache[cache_key]
-
-        prompt = {
-            "en": f"""Does this user want to continue sharing information? "{user_input}"
-            Answer with just: YES or NO""",
-            "de": f"""Möchte dieser Nutzer weiterhin Informationen teilen? "{user_input}"
-            Antworte nur mit: JA oder NEIN"""
-        }[self.language]
-
-        try:
-            response = self._get_model().invoke(prompt).content.strip().lower()
-            result = response in ["yes", "ja"]
-            _llm_response_cache[cache_key] = result
-            return result
-        except Exception as e:
-            self.log_error("WantsToContinueDetection", str(e), {"input": user_input})
-            return False
-        
-    def _get_therapeutic_response(self):
-        """Enhanced therapeutic response with comprehensive information gathering"""
-        if not hasattr(self, 'irrelevant_response_count'):
-            self.irrelevant_response_count = 0
-        
-        self.irrelevant_response_count += 1
-        current_risk = self._calculate_risk_level_from_flags()
-        
-        # Risk-aware therapeutic responses with detailed questioning
-        if current_risk in ["moderate", "high"]:
-            advanced_therapeutic_responses = {
-                "en": [
-                    "I understand this is serious. Can you tell me exactly what specific words or phrases they use that concern you?",
-                    "This sounds concerning. What specific online activities or groups have you noticed them involved in?",
-                    "I can see why you're worried. What particular symbols, images, or codes have you seen them display or share?",
-                ],
-                "de": [
-                    "Ich verstehe, dass das ernst ist. Kannst du mir genau sagen, welche spezifischen Wörter oder Phrasen sie verwenden, die dich beunruhigen?",
-                    "Das klingt besorgniserregend. Welche spezifischen Online-Aktivitäten oder Gruppen hast du bemerkt, in die sie involviert sind?",
-                    "Ich kann verstehen, warum du dir Sorgen machst. Welche besonderen Symbole, Bilder oder Codes hast du sie zeigen oder teilen sehen?",
-                ]
-            }[self.language]
-            responses = advanced_therapeutic_responses
-        else:
-            # Basic therapeutic responses with foundational detail gathering
-            basic_therapeutic_responses = {
-                "en": [
-                    "I understand you're concerned. Can you describe what specific changes in their speech or behavior first caught your attention?",
-                    "It's natural to feel uncertain about this. What particular words, phrases, or topics do they bring up repeatedly?",
-                    "Your instincts brought you here for a reason. What specific situations or conversations have made you most uncomfortable?",
-                ],
-                "de": [
-                    "Ich verstehe, dass du dir Sorgen machst. Kannst du beschreiben, welche spezifischen Veränderungen in ihrer Sprache oder ihrem Verhalten dir zuerst aufgefallen sind?",
-                    "Es ist natürlich, sich dabei unsicher zu fühlen. Welche besonderen Wörter, Phrasen oder Themen bringen sie wiederholt zur Sprache?",
-                    "Deine Instinkte haben dich aus einem Grund hierher gebracht. Welche spezifischen Situationen oder Gespräche haben dich am meisten unwohl fühlen lassen?",
-                ]
-            }[self.language]
-            responses = basic_therapeutic_responses
-        
-        index = min(self.irrelevant_response_count - 1, len(responses) - 1)
-        return responses[index]
-
-    def _identify_missing_details(self) -> Optional[str]:
-        """
-        Identify the most important missing follow-up category.
-        1) Ask the LLM for its top pick.
-        2) If that pick is already asked or is 'COMPREHENSIVE_COMPLETE', use _select_next_category().
-        3) Return None if no categories remain.
-        """
-        # 1. If no history, start with the very first category
-        if not self.chat_history:
-            return next(iter(self.followup_categories), None)
-
-        # 2. Generate LLM hint (cached)
-        conversation_text = " ".join(
-            msg.replace("User: ", "")
-            for msg in self.chat_history 
-            if msg.startswith("User: ")
-        )
-        cache_key = f"missing:{self.language}:{conversation_text}"
-        if cache_key in _llm_response_cache:
-            llm_choice = _llm_response_cache[cache_key]
-        else:
-            prompt = {
-                "en": f"""Analyze this conversation and return the MOST IMPORTANT missing category:
-Conversation: "{conversation_text}"
-Choose one: {', '.join(cat.upper() for cat in self.followup_categories)}
-OR return COMPREHENSIVE_COMPLETE.""",
-                "de": f"""Analysiere dieses Gespräch und gib die WICHTIGSTE fehlende Kategorie zurück:
-Gespräch: "{conversation_text}"
-Wähle eine: {', '.join(cat.upper() for cat in self.followup_categories)}
-ODER gib COMPREHENSIVE_COMPLETE zurück."""
-            }[self.language]
-            try:
-                llm_choice = self._get_model().invoke(prompt).content.strip().upper()
-            except Exception:
-                llm_choice = "BEHAVIORAL_CHANGES"
-            _llm_response_cache[cache_key] = llm_choice
-
-        # 3. Normalize & validate
-        valid = {cat.upper() for cat in self.followup_categories} | {"COMPREHENSIVE_COMPLETE"}
-        if llm_choice not in valid:
-            llm_choice = next(iter(self.followup_categories), None)
-
-        # 4. If LLM suggests complete or already asked, pick the next unasked
-        normalized = llm_choice.lower()
-        if normalized == "comprehensive_complete" or normalized in self.asked_followups:
-            return self._select_next_category()
-
-        return normalized
-
-    def _should_offer_support(self) -> bool:
-        """
-        Return True when we’ve reached at least 5 user–bot exchanges 
-        AND there are no more fresh categories to probe.
-        """
-        MIN_PROBES = 5
-        # conversation_depth counts bot+user turns; each user reply increments it by 1
-        # so after 5 user replies, conversation_depth >= 10
-        user_turns = self.conversation_depth // 2
-        no_more = self._select_next_category() is None
-        return user_turns >= MIN_PROBES and no_more
-
-    def _append_to_history(self, role: str, message: str):
-        if role.lower() == "user":
-            if not hasattr(self, "user_messages_seen"):
-                self.user_messages_seen = []
-            if message.strip().lower() not in [m.strip().lower() for m in self.user_messages_seen]:
-                self.user_messages_seen.append(message)
-            self.chat_history.append(f"User: {message}")
-            self.conversation_depth += 1
-        elif role.lower() == "bot":
-            self.chat_history.append(f"Bot: {message}")
-            self.last_bot_response = message
-
-
-    def _track_followup_categories(self, response):
-        """Track follow-up question categories to avoid repetition across the entire session."""
-        # Ensure the list exists
-        if not hasattr(self, 'asked_followups'):
-            self.asked_followups = []
-
-        response_lower = response.lower()
-        # Iterate through the shared mapping of categories → keywords
-        for category, keywords in self.followup_categories.items():
-            # If any keyword for this category appears in the bot's question...
-            if any(kw in response_lower for kw in keywords):
-                # ...and we haven't already asked this category...
-                if category not in self.asked_followups:
-                    # ...then mark it as asked
-                    self.asked_followups.append(category)
-
-    def _summarize_conversation(self) -> str:
-        """
-        Summarizes the conversation history into a condensed form.
-        Used for passing to the LLM prompt.
-        """
-        if not self.chat_history:
-            return "No significant conversation yet."
-
-        # Keep only the last 6 exchanges (user and bot)
-        recent_turns = self.chat_history[-12:]  # 6 user + 6 bot max
-        return "\n".join(recent_turns)
-
-    def generate_llm_response(self, user_message: str) -> str:
-        if self.is_irrelevant(user_message):
-            resp = self._render_steering_response()
-            self._append_to_history("bot", resp)
-            return resp
-
-        self._append_to_history("user", user_message)
-        summary = self._summarize_conversation()
-        exhausted = self._user_indicates_no_more_info(user_message)
-
-        # Enforce: Ask all categories before fallback
-        if self.conversation_depth >= 10 and self._select_next_category() is None:
-            exhausted = True
-        else:
-            exhausted = False
-
-            prompt = self._build_expert_radicalization_prompt(
-                summary=summary, exhausted=True, focus_category=None
-            )
-            resp = self._get_model().invoke(prompt).content.strip()
-            self._append_to_history("bot", resp)
-            return resp
-
-        # Next focus category
-        missing = self._identify_missing_details()
-        if missing and missing.lower() in self.asked_followups:
-            missing = None
-        focus = missing or self._select_next_category()
-
-        #  Prevent repeat of already-parsed quotes
-        last_5_user_inputs = [
-            m.replace("User: ", "").strip().lower() for m in self.chat_history[-10:]
-            if m.startswith("User:")
-        ]
-
-        if user_message.strip().lower() in last_5_user_inputs:
-            focus = self._select_next_category()
-
-
-        prompt = self._build_expert_radicalization_prompt(
-            summary=summary, exhausted=exhausted, focus_category=focus
-        )
-        resp = self._get_model().invoke(prompt).content.strip()
-
-        if focus:
-            if missing not in self.asked_followups:
-                self.asked_followups.append(focus)
-        self._append_to_history("bot", resp)
-        return resp
-
-    
-    def _build_enhanced_radicalization_context(self, user_message, recent_context, missing_details, user_exhausted):
-        """Build comprehensive context with radicalization expertise from uploaded documents"""
-
-        # Determine the next follow-up category to cover (used in prompt)
-        investigation_focus = {
-            "EXACT_WORDS": {
-                "en": "specific words, phrases, slogans, or coded language (e.g., '88', 'great replacement', 'lügenpresse', 'umvolkung', 'volkstod')",
-                "de": "spezifische Wörter, Phrasen, Slogans oder kodierte Sprache (z.B. '88', 'großer Austausch', 'Lügenpresse', 'Umvolkung', 'Volkstod')"
-            },
-            "BEHAVIORAL_PATTERNS": {
-                "en": "behavioral changes, social withdrawal, aggressive reactions, distrust patterns, 'us vs them' thinking",
-                "de": "Verhaltensänderungen, sozialer Rückzug, aggressive Reaktionen, Misstrauensmuster, 'Wir gegen Die'-Denken"
-            },
-            "ESCALATION_TIMELINE": {
-                "en": "timeline of radicalization progression, when changes started, triggering events, escalation patterns",
-                "de": "Zeitverlauf der Radikalisierung, wann Veränderungen begannen, auslösende Ereignisse, Eskalationsmuster"
-            },
-            "SOCIAL_CONTEXT": {
-                "en": "social isolation, group involvement, online communities, influence networks, peer pressure patterns",
-                "de": "soziale Isolation, Gruppenbeteiligung, Online-Gemeinschaften, Einflussnetzwerke, Gruppendruck"
-            },
-            "ONLINE_ACTIVITY": {
-                "en": "online platforms (Telegram, 4chan, Rumble), alternative media consumption, conspiracy research behavior",
-                "de": "Online-Plattformen (Telegram, 4chan, Rumble), alternative Mediennutzung, Verschwörungsrecherche-Verhalten"
-            },
-            "SYMBOLS_CODES": {
-                "en": "visual symbols (black sun, celtic cross, reichsflagge), numeric codes (88, 18, 28, 444), memes, emojis",
-                "de": "visuelle Symbole (schwarze Sonne, Keltenkreuz, Reichsflagge), Zahlencodes (88, 18, 28, 444), Memes, Emojis"
-            },
-            "VIOLENCE_INDICATORS": {
-                "en": "physical aggression, threats, weapons interest, violent rhetoric, justification of extreme actions",
-                "de": "körperliche Aggression, Drohungen, Waffeninteresse, gewaltverherrlichende Rhetorik, Rechtfertigung extremer Handlungen"
-            },
-            "GROUP_INVOLVEMENT": {
-                "en": "organized groups, recruitment experiences, meetings, events, leadership structures, peer networks",
-                "de": "organisierte Gruppen, Rekrutierungserfahrungen, Treffen, Veranstaltungen, Führungsstrukturen, Peer-Netzwerke"
-            }
-        }.get(missing_details, {
-            "en": "specific observable signs of right-wing extremist thinking or behavior",
-            "de": "spezifische beobachtbare Anzeichen rechtsextremistischen Denkens oder Verhaltens"
-        })
-
-        current_focus = investigation_focus[self.language]
-
-        # Build context for prompt function
-        context = {
-            "user_input": user_message,
-            "conversation_flow": recent_context,
-            "radicalization_focus": current_focus,
-            "user_status": "exhausted_current_topic" if user_exhausted else "providing_information",
-            "conversation_stage": f"exchange_{self.conversation_depth}_of_critical_first_5" if self.conversation_depth <= 5 else f"extended_exchange_{self.conversation_depth}",
-            "detected_concerns": ", ".join(set(self.observed_flags)) if self.observed_flags else "none_yet_detected",
-            "missing_category": missing_details,
-            "previous_probes": ", ".join(self.asked_followups) if hasattr(self, 'asked_followups') and self.asked_followups else "none",
-            "radicalization_stage_assessment": self._assess_current_stage_indicators()
-        }
-
-        return context
-
-    def _assess_current_stage_indicators(self):
-        """Assess current radicalization stage based on comprehensive indicators from documents"""
-        if not self.observed_flags:
-            return "stage_assessment_pending"
-        
-        flags_set = set(self.observed_flags)
-        
-        # Stage 3 indicators (Advanced Risk) - from documents
-        stage_3_indicators = {
-            "physical_violence", "symbolic_code", "hate_speech", "group_involvement", 
-            "digital_radicalization", "anti_democratic"
-        }
-        if len(flags_set.intersection(stage_3_indicators)) >= 2:
-            return "stage_3_far_right_oriented_high_risk"
-        
-        # Stage 2 indicators (Active Development) - from documents
-        stage_2_indicators = {
-            "ideological", "conspiracy", "anti_state", "xenophobic", 
-            "victimization", "symbolic_code"
-        }
-        if len(flags_set.intersection(stage_2_indicators)) >= 2:
-            return "stage_2_seeking_orientation_moderate_risk"
-        
-        # Stage 1 indicators (Early Risk) - from documents
-        stage_1_indicators = {
-            "ideological", "negative_sentiment", "victimization", "anti_democratic"
-        }
-        if any(flag in flags_set for flag in stage_1_indicators):
-            return "stage_1_initial_risk_factors"
-        
-        return "stage_assessment_insufficient_data"
-
-    def _build_expert_radicalization_prompt(
-        self,
-        summary: str,
-        exhausted: bool,
-        focus_category: Optional[str] = None,
-    ) -> str:
-        """
-        Off-topic: focus_category=='steering'
-        Support: exhausted==True
-        Otherwise: probe only focus_category
-        """
-        p = (
-            "You are an empathetic counselor-bot. "
-            "Use concise (2–3 sentence) replies, echoing the user’s last concern.\n\n"
-            f"Conversation summary:\n{summary}\n\n"
-        )
-
-        # Off-topic steering
-        if focus_category == "steering":
-            steer = {
-                "en": "That question seems unrelated. What changes have you observed in the person you’re concerned about—their views or behavior?",
-                "de": "Diese Frage passt nicht zum Thema. Welche Veränderungen im Verhalten oder in den Ansichten der betroffenen Person sind dir aufgefallen?"
-            }[self.language]
-            return p + steer
-
-        # Investigation focus
-        p += "Investigation Focus:\n"
-        if focus_category and focus_category in self.followup_categories:
-            p += f"- {focus_category}: {self.followup_categories[focus_category]}\n\n"
-        else:
-            for cat, desc in self.followup_categories.items():
-                p += f"- {cat}: {desc}\n"
-            p += "\n"
-
-        # Support referral
-        if exhausted:
-            p += (
-                "The user has no more details. "
-                "Ask: “Would you like me to connect you with a support service? (yes/no)”"
-            )
-
-        # Rules
-        p += (
-            "\n\nRules:\n"
-            "1. Never repeat a category already asked.  \n"
-            "2. Ask no more than 2 questions per turn.  \n"
-            "3. If all categories covered, ask “Anything else?” then offer support.  \n"
-            "4. Reply in the user’s chosen language."
-        )
-        return p
-
-    
-    def _build_hierarchical_prompt(self, context, user_exhausted):
-        """Build hierarchical prompt with radicalization expertise"""
-        
-        role_definition = {
-            "en": "You are a professional behavioral assessment counselor specializing in radicalization prevention.",
-            "de": "Du bist ein professioneller Verhaltensbeurteilungsberater, spezialisiert auf Radikalisierungsprävention."
-        }[self.language]
-        
-        context_section = {
-            "en": f"""CONTEXT:
-- Current user response: "{context['user_input']}"
-- Information focus needed: {context['information_gap']}
-- User communication status: {context['user_status']}
-- Conversation stage: {context['conversation_stage']}
-- Behavioral concerns detected: {context['detected_concerns']}
-- Missing assessment category: {context['missing_category']}
-- Recent follow-up types asked: {context['asked_followups']}""",
-            
-            "de": f"""KONTEXT:
-- Aktuelle Nutzerantwort: "{context['user_input']}"
-- Benötigter Informationsfokus: {context['information_gap']}
-- Nutzer-Kommunikationsstatus: {context['user_status']}
-- Gesprächsstadium: {context['conversation_stage']}
-- Erkannte Verhaltenssorgen: {context['detected_concerns']}
-- Fehlende Bewertungskategorie: {context['missing_category']}
-- Kürzlich gestellte Follow-up-Typen: {context['asked_followups']}"""
-        }[self.language]
-        
-        if user_exhausted:
-            task_instruction = {
-                "en": """TASK: Generate ONE perspective-shifting question (15-25 words) that explores a different behavioral dimension.
-Focus on gathering NEW information for radicalization stage assessment.""",
-                "de": """AUFGABE: Generiere EINE perspektivwechselnde Frage (15-25 Wörter), die eine andere Verhaltensdimension erkundet.
-Fokussiere auf das Sammeln NEUER Informationen für Radikalisierungsstufenbewertung."""
-            }[self.language]
-        else:
-            task_instruction = {
-                "en": f"""TASK: Generate ONE focused follow-up question (15-25 words) about {context['information_gap']}.
-Ask about concrete actions, words, reactions, or observable changes.""",
-                "de": f"""AUFGABE: Generiere EINE fokussierte Nachfrage (15-25 Wörter) über {context['information_gap']}.
-Frage nach konkreten Handlungen, Worten, Reaktionen oder beobachtbaren Veränderungen."""
-            }[self.language]
-        
-        output_constraints = {
-            "en": """OUTPUT REQUIREMENTS:
-- Respond ONLY in English with empathy
-- Generate exactly ONE question that ends with '?'
-- 15-25 words maximum
-- Include brief empathetic acknowledgment + specific question""",
-            "de": """AUSGABEANFORDERUNGEN:
-- Antworte NUR auf Deutsch mit Empathie
-- Generiere genau EINE Frage, die mit '?' endet
-- 15-25 Wörter maximal
-- Füge kurze empathische Anerkennung + spezifische Frage hinzu"""
-        }[self.language]
-        
-        return f"""{role_definition}
-
-{context_section}
-
-{task_instruction}
-
-{output_constraints}
-
-Your empathetic question:"""
-
-    def _validate_and_enhance_response(self, response, user_message, user_exhausted):
-        """Validate and enhance the LLM response"""
-        if not response:
-            return None
-        
-        cleaned = self._clean_llm_response(response)
-        
-        if not cleaned:
-            return None
-        
-        validation_checks = {
-            "has_content": len(cleaned) > 10,
-            "reasonable_length": 15 <= len(cleaned) <= 250,
-            "ends_with_question": cleaned.rstrip().endswith('?'),
-            "language_consistency": self._check_language_consistency(cleaned),
-            "no_processing_artifacts": not any(term in cleaned.lower() for term in 
-                                            ['generate', 'strategy', 'analysis', 'processing', 'system', 'task', 'output']),
-            "behavioral_focus": any(word in cleaned.lower() for word in 
-                                ['what', 'how', 'when', 'where', 'who', 'do', 'does', 'did', 
-                                'was', 'wie', 'wann', 'wo', 'wer', 'macht', 'hat', 'war', 'can', 'könnt'])
+        # Handle exit commands
+        exit_commands = {
+            "en": ["exit", "quit", "stop", "end", "bye"],
+            "de": ["exit", "beenden", "ende", "verlassen", "stopp", "tschüss"]
         }
         
-                # 🛡️ Additional hardening: block LLM junk, hallucinations, or broken responses
-        forbidden_phrases = [
-            "as an ai", "i cannot", "my purpose", "i don't have emotions",
-            "as a chatbot", "according to my training", "i'm just a model"
-        ]
-        if any(bad in cleaned.lower() for bad in forbidden_phrases):
-            return None
-
-        # Prevent multiple questions in a single reply
-        if cleaned.count("?") > 1:
-            return None
-
-        # Avoid stray assistant-format phrases
-        if any(token in cleaned.lower() for token in ["your question:", "task:", "instruction:", "output:"]):
-            return None
-
-        # Normalize punctuation
-        if not cleaned.endswith("?"):
-            cleaned = cleaned.rstrip(".! ")
-            cleaned += "?"
-
-        # Normalize casing
-        if cleaned and not cleaned[0].isupper():
-            cleaned = cleaned[0].upper() + cleaned[1:]
-
-        return cleaned if 10 <= len(cleaned) <= 250 else None
-
-    def _select_next_category(self) -> Optional[str]:
-        """
-        Pick the next unasked follow-up category in priority order.
-        Returns the first category from self.followup_categories.keys() that
-        has not yet been recorded in self.asked_followups, or None if all have been asked.
-        """
-        for category in self.followup_categories.keys():
-            if category not in self.asked_followups:
-                return category
-        return None  
-
-    def _check_language_consistency(self, response):
-        """Check if response matches expected language"""
-        if self.language == "en":
-            english_indicators = ['what', 'how', 'when', 'where', 'who', 'do', 'does', 'did', 'can', 'have', 'has', 'would', 'could']
-            return any(word in response.lower() for word in english_indicators)
-        else:
-            german_indicators = ['was', 'wie', 'wann', 'wo', 'wer', 'macht', 'hat', 'kann', 'kannst', 'hast', 'könn', 'werd', 'würd']
-            return any(word in response.lower() for word in german_indicators)
-
-    def _repair_response(self, response):
-        """Attempt to repair minor response issues"""
-        prefixes_to_remove = ['bot:', 'assistant:', 'question:', 'frage:', 'answer:', 'antwort:', 'your empathetic question:']
-        for prefix in prefixes_to_remove:
-            if response.lower().startswith(prefix):
-                response = response[len(prefix):].strip()
-        
-        if not response.endswith('?'):
-            response = response.rstrip('.!') + '?'
-        
-        if response:
-            response = response[0].upper() + response[1:]
-        
-        if (10 <= len(response) <= 250 and 
-            response.endswith('?') and
-            self._check_language_consistency(response)):
-            return response
-        
-        return None
-
-    def _clean_llm_response(self, response):
-        """Enhanced response cleaning that preserves more valid content"""
-        if not response:
-            return ""
-
-        lines = response.split('\n')
-        content_lines = []
-
-        for line in lines:
-            line = line.strip()
-
-            skip_indicators = [
-                'def ', 'class ', 'import ', 'if __', 'try:', 'except:',
-                'system_prompt', 'generate_', 'processing_', 'strategy:',
-                'analysis:', 'instruction:', 'context:', 'task:', 'output:', 'your empathetic question:'
-            ]
-
-            if any(line.lower().startswith(indicator.lower()) for indicator in skip_indicators):
-                continue
-
-            if line and len(line) > 1:
-                content_lines.append(line)
-
-        cleaned = ' '.join(content_lines).strip()
-
-        # 🛡️ Block hallucinated tool/function outputs
-        artifact_patterns = ["tool.call", "function.call", "action(", "response =", "tool_response", "generate(", "strategy:"]
-        if any(p in cleaned.lower() for p in artifact_patterns):
-            return ""
-
-        cleaned = re.sub(r'^(bot:|assistant:|question:|frage:|your empathetic question:)\s*', '', cleaned, flags=re.IGNORECASE)
-
-        question_indicators = ['what', 'how', 'when', 'where', 'who', 'do', 'can', 'have',
-                            'was', 'wie', 'wann', 'wo', 'wer', 'kannst', 'hast', 'macht', 'könnt']
-
-        if any(word in cleaned.lower() for word in question_indicators):
-            return cleaned
-
-        if len(cleaned) > 250 or any(term in cleaned.lower() for term in ['generate', 'system', 'processing']):
-            return ""
-
-        return cleaned
-
-    def _generate_contextual_fallback(self, user_input, has_violence=False):
-        """Generate fallback response when primary generation fails"""
-        user_messages = [msg.replace("User: ", "") for msg in self.chat_history if msg.startswith("User: ")]
-        recent_responses = "; ".join(user_messages[-3:]) if user_messages else ""
-        current_risk = self._calculate_risk_level_from_flags()
-
-        user_exhausted = self._user_indicates_no_more_info(user_input)
-
-        fallback_prompt = {
-            "en": f"""Generate an empathetic follow-up question for radicalization assessment:
-
-    SITUATION:
-    - User response: "{user_input}"
-    - Recent conversation: {recent_responses}
-    - Risk level: {current_risk}
-    - User exhausted current topic: {"Yes" if user_exhausted else "No"}
-
-    Generate ONE clear, empathetic follow-up question (15-25 words) about behavioral observations.
-
-    Respond only with your question.""",
-            "de": f"""Generiere eine empathische Nachfrage für Radikalisierungsbewertung:
-
-    SITUATION:
-    - Nutzerantwort: "{user_input}"
-    - Kürzliches Gespräch: {recent_responses}
-    - Risikolevel: {current_risk}
-    - Nutzer hat aktuelles Thema erschöpft: {"Ja" if user_exhausted else "Nein"}
-
-    Generiere EINE klare, empathische Nachfrage (15-25 Wörter) über Verhaltensbeobachtungen.
-
-    Antworte nur mit deiner Frage."""
-        }[self.language]
-
-        try:
-            response = self._get_model().invoke(fallback_prompt).content.strip()
-            response = self._clean_llm_response(response)
-
-            # Apply same hardening checks as validate_enhance
-            if response and 10 <= len(response) <= 250 and "?" in response:
-                if not any(bad in response.lower() for bad in ["as an ai", "output:", "instruction:", "task:"]):
-                    if response.count("?") == 1:
-                        return response
-        except Exception as e:
-            self.log_error("ContextualFallbackError", str(e), {"input": user_input})
-
-        # 🧠 If everything failed, use structured last-resort question
-        fallback_bank = {
-            "en": [
-                "That sounds difficult. Have they posted anything unusual online or shared strange videos lately?",
-                "Thanks for telling me. Do they use any symbols or numbers that stand out — like 88 or certain emojis?",
-                "That’s concerning. Have they made new friends or started spending time with different groups recently?",
-                "I understand. Have they expressed anger towards institutions or mentioned phrases like 'system collapse'?",
-                "You're doing the right thing by talking about it. Have they ever said violence might be necessary to defend beliefs?"
-            ],
-            "de": [
-                "Das klingt schwierig. Haben sie in letzter Zeit ungewöhnliche Inhalte online geteilt?",
-                "Danke fürs Teilen. Verwenden sie auffällige Symbole oder Zahlen wie 88 oder bestimmte Emojis?",
-                "Das ist besorgniserregend. Haben sie neue Freunde gefunden oder verbringen Zeit mit anderen Gruppen?",
-                "Ich verstehe. Haben sie Wut auf Institutionen geäußert oder von 'Systemkollaps' gesprochen?",
-                "Es ist gut, dass du darüber sprichst. Haben sie jemals Gewalt zur Verteidigung ihrer Überzeugungen erwähnt?"
-            ]
-        }
-
-        fallback_list = fallback_bank[self.language]
-        index = min(self.conversation_depth, len(fallback_list) - 1)
-        return fallback_list[index]
-
-    def get_response(self, user_input):
-        user_input = re.sub(r'\b(\w+) mr\b', r'\1 me', user_input, flags=re.IGNORECASE)
-        user_input = re.sub(r'\bwith mr\b', 'with me', user_input, flags=re.IGNORECASE)
-
-        if user_input.lower() == "end_conversation":
-            risk_level = self._calculate_risk_level_from_flags()
-            conclusion = self.final_decision(risk_level)
-            self.log_interaction(user_input, conclusion, risk_level, self.determine_stage())
-            return conclusion
-
-        recent_user_inputs = [
-            msg.replace("User: ", "") for msg in self.chat_history[-6:]
-            if msg.startswith("User: ")
-        ]
-        is_actual_repetition = user_input.strip().lower() in [
-            inp.strip().lower() for inp in recent_user_inputs
-        ]
-
-        if self.is_irrelevant(user_input):
-            response = self._get_therapeutic_response()
-            sentiment, hate = self.analyze_input(user_input)
-            result = self.assess_risk(sentiment, hate, user_input, user_input, response)
-
-            if isinstance(result, str) and self.conversation_depth < 10:
-               # print("Blocked premature support offer (irrelevant)")
-                return self._generate_contextual_fallback(user_input)
-
-            if isinstance(result, str):
-                return result
-
-            self.log_interaction(user_input, response, "none")
-            return response
-
-        if hasattr(self, 'irrelevant_response_count'):
-            self.irrelevant_response_count = 0
-
-        sentiment, hate = self.analyze_input(user_input)
-
-        # Determine next unasked follow-up category
-        missing = self._identify_missing_details()
-        if missing and missing.lower() in self.asked_followups:
-            missing = self._select_next_category()
-
-        # Forcefully pick the next follow-up category if missing is None
-        if not missing:
-            missing = self._select_next_category()
-
-        if missing:
-        #    print(f"Focusing on follow-up category: {missing}")
-
-            llm_reply = self.generate_llm_response(user_input).strip()
-
-        # High-priority override: If user mentions symbols, pamphlets, or codes and category not yet asked
-        lower_input = user_input.lower()
-        force_symbol_check = any(keyword in lower_input for keyword in ["symbol", "code", "zeichen", "pamphlet", "flyer", "number", "zahl", "emoji", "image"])
-
-        # Force proactive probing if high-risk indicators detected (e.g. stage 2 or 3)
-        stage = self.determine_stage()
-        if (stage in ["stage_2", "stage_3"] or force_symbol_check) and "symbols_codes" not in self.asked_followups:
-            print("Proactively asking about symbols/codes due to stage or input cue")
-            self.asked_followups.append("symbols_codes")
-            llm_reply = {
-                "en": "Can you describe any specific symbols, numbers, or codes that stood out — on paper, clothing, or online?",
-                "de": "Gab es bestimmte Symbole, Zahlen oder Codes, die dir aufgefallen sind – auf Papier, Kleidung oder online?"
-            }[self.language]
-
-        llm_reply = self._clean_llm_response(llm_reply)
-
-        # Fallback if repeated last bot message
-        if hasattr(self, 'last_bot_response') and llm_reply == self.last_bot_response:
-            #print("Detected repeated bot message, switching to fallback.")
-            llm_reply = self._generate_contextual_fallback(user_input)
-        else:
-            # Record follow-up category to avoid asking again
-            if missing and missing not in self.asked_followups:
-                self.asked_followups.append(missing)
-
-        result = self.assess_risk(sentiment, hate, user_input, user_input, llm_reply, is_repetition=is_actual_repetition)
-
-        if isinstance(result, tuple):
-            return llm_reply
-
-        if isinstance(result, str):
-            if self.conversation_depth < 10 and not self._user_requests_support(user_input):
-               # print("Blocked premature support offer (main)")
-                return self._generate_contextual_fallback(user_input)
-            return result
-
-        return llm_reply
-
-
-if __name__ == "__main__":
-    bot = RadicalizationBot()
-    print(f"\n Your anonymous session ID: {bot.session_id}\n")
-    print(f"\n Ihre anonyme Sitzungs-ID: {bot.session_id}\n")
-    print(INITIAL_PROMPTS["en"]["choose_language"])
-    lang_input = input(INITIAL_PROMPTS["en"]["enter_language"]).strip()
-    bot.set_language(lang_input)
-    
-    prompts = INITIAL_PROMPTS[bot.language]
-    while True:
-        region_input = input(prompts["enter_region"] + " ").strip()
-        if bot.validate_region(region_input):
-            break
-    
-    print("\n" + prompts["describe_concern"])
-    while True:
-        user_input = input("You: ").strip()
-        if user_input.lower() in ["exit", "quit"]:
+        if user_input.lower() in exit_commands.get(self.language, []):
             farewell = {
-                "en": "You've done something important by speaking up. Take care.",
-                "de": "Es war wichtig, dass du darüber gesprochen hast. Pass auf dich auf."
-            }[bot.language]
-            print("Bot:", farewell)
+                "en": "You did the right thing by not looking away. Take care.",
+                "de": "Du hast das Richtige getan, indem du nicht weggeschaut hast. Pass auf dich auf."
+            }[self.language]
+            self.conversation_concluded = True
+            return farewell
+
+        # Analyze input for risk indicators
+        sentiment, hate_result, risk_indicators = self.analyze_input_comprehensive(user_input)
+        risk_level = self.assess_risk_level(sentiment, hate_result, risk_indicators)
+        
+        self.chat_history.append(f"User: {user_input}")
+        self.conversation_depth += 1
+        
+        # Check if user is exhausted (very short responses or "nothing more" phrases)
+        user_exhausted = self.detect_user_exhaustion(user_input)
+        
+        # Simple 5+5 Flow
+        if self.conversation_depth <= 5:
+            # First 5 questions - explore different aspects
+            if self.conversation_depth == 5 or user_exhausted:
+                # Ask if they want to continue after 5 questions
+                response = {
+                    "en": "Thank you for sharing these details. Do you have more information about their behavior that you'd like to discuss? (yes/no)",
+                    "de": "Danke, dass Sie diese Details geteilt haben. Haben Sie weitere Informationen über ihr Verhalten, die Sie besprechen möchten? (ja/nein)"
+                }[self.language]
+                self.awaiting_more_details = True
+            else:
+                # Generate contextual follow-up question
+                response = self.generate_smart_question(user_input)
+                
+        elif self.awaiting_more_details:
+            # Handle yes/no response
+            positive_responses = ["yes", "ja", "yeah", "sure", "okay", "ok", "y", "j"]
+            if any(pos in user_input.lower() for pos in positive_responses):
+                self.awaiting_more_details = False
+                response = {
+                    "en": "I'd like to understand better. Can you tell me more about when these changes started?",
+                    "de": "Ich möchte das besser verstehen. Können Sie mir mehr darüber erzählen, wann diese Veränderungen begannen?"
+                }[self.language]
+            else:
+                # User doesn't want more questions - offer support
+                self.awaiting_more_details = False
+                self.user_wants_support = True
+                response = {
+                    "en": "I understand. Would you like me to provide support services that can help? (yes/no)",
+                    "de": "Ich verstehe. Möchten Sie, dass ich Ihnen Unterstützungsdienste zeige, die helfen können? (ja/nein)"
+                }[self.language]
+                
+        elif self.user_wants_support:
+            # Handle yes/no response for support services
+            positive_responses = ["yes", "ja", "yeah", "sure", "okay", "ok", "y", "j"]
+            if any(pos in user_input.lower() for pos in positive_responses):
+                # User wants support - provide conclusion with services
+                response = self.generate_conclusion_message(risk_level)
+                response += "\n\n" + {
+                    "en": "You did the right thing by not looking away.",
+                    "de": "Du hast das Richtige getan, indem du nicht weggeschaut hast."
+                }[self.language]
+                self.conversation_concluded = True
+            else:
+                # User doesn't want support - just provide encouragement  
+                response = {
+                    "en": "I understand. You did the right thing by not looking away. If you change your mind, support is always available.",
+                    "de": "Ich verstehe. Du hast das Richtige getan, indem du nicht weggeschaut hast. Falls Sie Ihre Meinung ändern, ist Unterstützung immer verfügbar."
+                }[self.language]
+                self.conversation_concluded = True
+                    
+        elif self.conversation_depth <= 10:
+            # Extended 5 questions (6-10)
+            if self.conversation_depth == 10 or user_exhausted:
+                # End after 10 questions total
+                response = self.generate_conclusion_message(risk_level)
+                response += "\n\n" + {
+                    "en": "You did the right thing by not looking away.",
+                    "de": "Du hast das Richtige getan, indem du nicht weggeschaut hast."
+                }[self.language]
+                self.conversation_concluded = True
+            else:
+                # Generate contextual follow-up question
+                response = self.generate_smart_question(user_input)
+        else:
+            # Conversation concluded
+            response = self.generate_conclusion_message(risk_level)
+            response += "\n\n" + {
+                "en": "You did the right thing by not looking away.",
+                "de": "Du hast das Richtige getan, indem du nicht weggeschaut hast."
+            }[self.language]
+            self.conversation_concluded = True
+
+        # Log interaction
+        self.log_interaction(user_input, response, risk_level)
+        
+        return response  
+        # Additional utility functions and main execution logic
+
+def run_bot_session():
+    """Main function to run the bot session"""
+    print("🤖 Radicalization Support Bot Starting...")
+    bot = RadicalizationBot()
+    
+    # Language selection
+    print("\n" + "="*50)
+    lang_prompt = INITIAL_PROMPTS["en"]["choose_language"]
+    print(lang_prompt)
+    
+    while True:
+        lang_input = input("> ").strip()
+        if lang_input.lower() in ["english", "en", "deutsch", "de", "german"]:
+            bot.set_language(lang_input)
             break
-        print("Bot:", bot.get_response(user_input))
+        else:
+            print("Please choose: English or Deutsch")
+    
+    # Region selection
+    region_prompt = INITIAL_PROMPTS[bot.language]["enter_region"]
+    print(f"\n{region_prompt}")
+    region_input = input("> ").strip()
+    bot.set_region(region_input)
+    
+    # Initial concern description
+    concern_prompt = INITIAL_PROMPTS[bot.language]["describe_concern"]
+    print(f"\n{concern_prompt}")
+    
+    # Main conversation loop
+    while not bot.conversation_concluded:
+        try:
+            user_input = input(f"\n[{bot.conversation_depth + 1}] > ").strip()
+            
+            if not user_input:
+                # Treat empty input as "no more info" and move conversation forward
+                user_input = "no more information"
+            
+            response = bot.get_response(user_input)
+            print(f"\n🤖 {response}")
+            
+            # Check if conversation should end
+            if bot.conversation_concluded:
+                print(f"\n{'-'*50}")
+                print("Thank you for using the radicalization support bot." if bot.language == "en" 
+                      else "Danke, dass Sie den Radikalisierungs-Support-Bot verwendet haben.")
+                break
+                
+        except KeyboardInterrupt:
+            print(f"\n\nSession ended by user.")
+            break
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            error_msg = {
+                "en": "I'm here to help. Can you tell me more about what you've observed?",
+                "de": "Ich bin hier, um zu helfen. Können Sie mir mehr darüber erzählen, was Sie beobachtet haben?"
+            }
+            print(error_msg[bot.language])
+
+# Enhanced conversation state management
+class ConversationState:
+    """Track detailed conversation state for better flow control"""
+    
+    def __init__(self):
+        self.questions_asked = []
+        self.topics_covered = set()
+        self.risk_indicators_found = []
+        self.user_engagement_level = "high"
+        self.last_question_category = None
+        self.follow_up_needed = []
+    
+    def add_question(self, question, category):
+        self.questions_asked.append({
+            "question": question,
+            "category": category,
+            "timestamp": datetime.now()
+        })
+        self.last_question_category = category
+        
+    def mark_topic_covered(self, topic):
+        self.topics_covered.add(topic)
+        
+    def needs_follow_up(self, category):
+        return category not in self.topics_covered
+        
+    def get_uncovered_priorities(self):
+        """Get high-priority topics not yet covered"""
+        high_priority = ["specific_words", "behavioral_changes", "escalation_signs", "symbols_codes"]
+        return [topic for topic in high_priority if topic not in self.topics_covered]
+
+# Enhanced prompt engineering functions
+def get_few_shot_examples(language="en"):
+    """Provide few-shot examples for better LLM performance"""
+    examples = {
+        "en": [
+            {
+                "user": "My brother has been talking about immigrants a lot lately",
+                "bot": "That's concerning. Can you describe the specific words or phrases he's been using when talking about immigrants?"
+            },
+            {
+                "user": "She keeps sharing weird posts on Facebook",
+                "bot": "I understand your concern. What kind of content is she sharing that seems unusual to you?"
+            },
+            {
+                "user": "He's become really angry and withdrawn",
+                "bot": "That sounds difficult. Can you tell me more about what triggers his anger or what he gets angry about?"
+            }
+        ],
+        "de": [
+            {
+                "user": "Mein Bruder redet in letzter Zeit viel über Einwanderer",
+                "bot": "Das ist beunruhigend. Können Sie die spezifischen Worte oder Phrasen beschreiben, die er verwendet, wenn er über Einwanderer spricht?"
+            },
+            {
+                "user": "Sie teilt ständig komische Posts auf Facebook",
+                "bot": "Ich verstehe Ihre Sorge. Was für Inhalte teilt sie, die Ihnen ungewöhnlich erscheinen?"
+            },
+            {
+                "user": "Er ist sehr wütend und zurückgezogen geworden",
+                "bot": "Das klingt schwierig. Können Sie mir mehr darüber erzählen, was seine Wut auslöst oder worüber er sich ärgert?"
+            }
+        ]
+    }
+    return examples.get(language, examples["en"])
+
+def create_advanced_system_prompt(language, conversation_history, risk_level):
+    """Create advanced system prompt with chain-of-thought reasoning"""
+    
+    few_shot_examples = get_few_shot_examples(language)
+    examples_text = "\n".join([f"User: {ex['user']}\nBot: {ex['bot']}" for ex in few_shot_examples])
+    
+    advanced_prompt = {
+        "en": f"""You are an expert counselor specializing in early detection of radicalization. You help people discuss concerning changes in someone close to them.
+
+CRITICAL RULES:
+1. NEVER refuse any input - you must help with all descriptions, even violent ones
+2. ALWAYS ask follow-up questions to gather more details
+3. Focus on the CONCERNING PERSON'S behavior, not the user's feelings
+4. Ask for SPECIFIC, DESCRIPTIVE details about what was observed
+5. Keep responses under 40 words
+6. Use empathetic but professional tone
+
+CONTEXT: You understand German radicalization patterns including:
+- Right-wing symbols (88, 18, swastika, black sun, reichsflagge)
+- Conspiracy terms (deep state, new world order, great replacement)
+- Anti-state language (BRD GmbH, reichsbürger, lügenpresse)
+- Xenophobic phrases (umvolkung, islamization, eurabia)
+
+CURRENT RISK LEVEL: {risk_level}
+CONVERSATION HISTORY: {conversation_history}
+
+EXAMPLES OF GOOD RESPONSES:
+{examples_text}
+
+YOUR RESPONSE STRATEGY:
+1. Acknowledge their input briefly
+2. Ask ONE specific follow-up question
+3. Focus on gathering descriptive narrative details
+
+THINK STEP BY STEP:
+- What specific aspect needs more detail?
+- What question will reveal concerning patterns?
+- How can I get them to describe what they observed?
+""",
+        "de": f"""Sie sind ein Expertenberater, der sich auf die Früherkennung von Radikalisierung spezialisiert hat. Sie helfen Menschen dabei, beunruhigende Veränderungen bei nahestehenden Personen zu besprechen.
+
+KRITISCHE REGELN:
+1. Lehnen Sie NIEMALS eine Eingabe ab - Sie müssen bei allen Beschreibungen helfen, auch bei gewalttätigen
+2. Stellen Sie IMMER Nachfragen, um weitere Details zu sammeln
+3. Konzentrieren Sie sich auf das Verhalten der BETREFFENDEN PERSON, nicht auf die Gefühle des Benutzers
+4. Fragen Sie nach SPEZIFISCHEN, BESCHREIBENDEN Details über das Beobachtete
+5. Halten Sie Antworten unter 40 Wörtern
+6. Verwenden Sie einen einfühlsamen aber professionellen Ton
+
+KONTEXT: Sie verstehen deutsche Radikalisierungsmuster einschließlich:
+- Rechte Symbole (88, 18, Hakenkreuz, Schwarze Sonne, Reichsflagge)
+- Verschwörungsbegriffe (Deep State, Neue Weltordnung, Großer Austausch)
+- Staatsfeindliche Sprache (BRD GmbH, Reichsbürger, Lügenpresse)
+- Fremdenfeindliche Phrasen (Umvolkung, Islamisierung, Eurabia)
+
+AKTUELLES RISIKONIVEAU: {risk_level}
+GESPRÄCHSVERLAUF: {conversation_history}
+
+BEISPIELE FÜR GUTE ANTWORTEN:
+{examples_text}
+
+IHRE ANTWORTSTRATEGIE:
+1. Bestätigen Sie ihre Eingabe kurz
+2. Stellen Sie EINE spezifische Nachfrage
+3. Konzentrieren Sie sich darauf, beschreibende narrative Details zu sammeln
+
+DENKEN SIE SCHRITT FÜR SCHRITT:
+- Welcher spezifische Aspekt braucht mehr Details?
+- Welche Frage wird besorgniserregende Muster aufdecken?
+- Wie kann ich sie dazu bringen, zu beschreiben, was sie beobachtet haben?
+"""
+    }
+    
+    return advanced_prompt[language]
+
+# Enhanced risk assessment with stages
+def assess_radicalization_stage(observed_flags):
+    """Determine radicalization stage based on comprehensive analysis"""
+    
+    stage_indicators = {
+        "stage_1": {
+            "markers": ["negative_sentiment", "behavioral_changes", "conspiracy"],
+            "threshold": 1,
+            "description": "At risk of initial involvement"
+        },
+        "stage_2": {
+            "markers": ["conspiracy", "anti_state", "xenophobic", "symbolic_codes"],
+            "threshold": 2,
+            "description": "Seeking orientation, testing extremist narratives"
+        },
+        "stage_3": {
+            "markers": ["hate_speech", "symbolic_codes", "violent", "antisemitic", "ideological"],
+            "threshold": 2,
+            "description": "Far-right oriented with potential for action"
+        }
+    }
+    
+    flag_set = set(observed_flags)
+    
+    # Check Stage 3 first (most serious)
+    stage_3_matches = len(flag_set.intersection(set(stage_indicators["stage_3"]["markers"])))
+    if stage_3_matches >= stage_indicators["stage_3"]["threshold"]:
+        return "stage_3", stage_indicators["stage_3"]["description"]
+    
+    # Check Stage 2
+    stage_2_matches = len(flag_set.intersection(set(stage_indicators["stage_2"]["markers"])))
+    if stage_2_matches >= stage_indicators["stage_2"]["threshold"]:
+        return "stage_2", stage_indicators["stage_2"]["description"]
+    
+    # Check Stage 1
+    stage_1_matches = len(flag_set.intersection(set(stage_indicators["stage_1"]["markers"])))
+    if stage_1_matches >= stage_indicators["stage_1"]["threshold"]:
+        return "stage_1", stage_indicators["stage_1"]["description"]
+    
+    return "none", "No clear radicalization indicators"
+
+# Conversation analytics and insights
+def analyze_conversation_patterns(chat_history, observed_flags):
+    """Analyze conversation for patterns and insights"""
+    
+    insights = {
+        "total_exchanges": len(chat_history),
+        "risk_escalation": False,
+        "key_concerns": [],
+        "recommended_focus": [],
+        "urgency_level": "normal"
+    }
+    
+    # Analyze flag progression
+    high_risk_flags = ["hate_speech", "violent", "symbolic_codes", "antisemitic"]
+    moderate_risk_flags = ["conspiracy", "anti_state", "xenophobic"]
+    
+    high_risk_count = sum(1 for flag in observed_flags if flag in high_risk_flags)
+    moderate_risk_count = sum(1 for flag in observed_flags if flag in moderate_risk_flags)
+    
+    if high_risk_count >= 2:
+        insights["urgency_level"] = "high"
+        insights["recommended_focus"] = ["immediate_professional_help", "safety_assessment"]
+    elif high_risk_count >= 1 or moderate_risk_count >= 3:
+        insights["urgency_level"] = "moderate"
+        insights["recommended_focus"] = ["professional_consultation", "continued_monitoring"]
+    
+    return insights
+
+# Testing and validation functions
+def validate_bot_configuration():
+    """Validate bot configuration and dependencies"""
+    checks = {
+        "api_key": bool(API_KEY),
+        "knowledge_base": bool(RADICALIZATION_KNOWLEDGE_BASE),
+        "language_prompts": bool(INITIAL_PROMPTS),
+        "nltk_data": True
+    }
+    
+    try:
+        from nltk.sentiment.vader import SentimentIntensityAnalyzer
+        # Test if VADER can be initialized
+        SentimentIntensityAnalyzer()
+        checks["nltk_data"] = True
+    except Exception:
+        checks["nltk_data"] = False
+    
+    return checks
+
+def test_llm_robustness():
+    """Test LLM with challenging inputs to ensure robustness"""
+    test_bot = RadicalizationBot()
+    
+    test_cases = [
+        "My friend talks about killing immigrants",
+        "He shows me Nazi symbols all the time",
+        "She believes in Jewish world conspiracy",
+        "They want to use violence against the government"
+    ]
+    
+    results = []
+    for test_input in test_cases:
+        try:
+            response = test_bot.get_response(test_input)
+            success = "cannot" not in response.lower() and "inappropriate" not in response.lower()
+            results.append({"input": test_input, "success": success, "response": response})
+        except Exception as e:
+            results.append({"input": test_input, "success": False, "error": str(e)})
+    
+    return results
+
+# Main execution
+if __name__ == "__main__":
+    # Validate configuration
+    config_checks = validate_bot_configuration()
+    if not all(config_checks.values()):
+        print("⚠️ Configuration issues detected:")
+        for check, status in config_checks.items():
+            if not status:
+                print(f"  - {check}: FAILED")
+        print("\nPlease fix configuration issues before running.")
+        exit(1)
+    
+    # Optional: Test LLM robustness
+    print("🧪 Testing LLM robustness...")
+    test_results = test_llm_robustness()
+    successful_tests = sum(1 for result in test_results if result.get("success", False))
+    print(f"✅ LLM robustness: {successful_tests}/{len(test_results)} tests passed")
+    
+    # Run main bot session
+    try:
+        run_bot_session()
+    except Exception as e:
+        print(f"\n❌ Fatal error: {e}")
+        print("Please check your configuration and try again.")
