@@ -272,8 +272,21 @@ else:
     else:
         st.info("🔒 The conversation has ended. Thank you for your message.")
 
+
     # End Conversation button
     if st.button("End Conversation"):
+        # Call API to reset backend session first:
+        try:
+            requests.post(API_URL.replace("/chat", "/reset"), json={
+                "session_id": st.session_state["session_id"],
+                "message": "",
+                "lang": st.session_state["lang"],
+                "region": st.session_state["region"]
+            })
+        except Exception as e:
+            st.warning(f"⚠️ Failed to reset backend session: {e}")
+
+        # Then reset frontend session
         st.session_state["conversation_started"] = False
         st.session_state["region"] = ""
         st.session_state["messages"] = []
