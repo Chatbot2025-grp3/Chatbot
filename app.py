@@ -70,73 +70,178 @@ st.set_page_config(page_title="FRIDA", layout="centered")
 
 st.markdown("""
 <style>
-            
-form {
-    border: 2px solid #ff914d !important;  /* orange border */
-    border-radius: 8px;
-    padding: 16px;
-    background-color: #1a1f4a;  /* optional: matches background */
+/* CSS Custom Properties for theme adaptation */
+:root {
+    --primary-bg: #1A1F4A;
+    --primary-text: #ffffff;
+    --accent-color: #ff914d;
+    --accent-hover: #ffa86c;
+    --accent-text: #1b1f4b;
+    --input-bg: #ffffff;
+    --input-text: #000000;
+    --input-border: #cccccc;
+    --code-bg: #2d3748;
+    --code-text: #e2e8f0;
+    --form-border: #ff914d;
 }
-           
+
+/* Dark mode media query for system preference */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --input-bg: #2d3748;
+        --input-text: #e2e8f0;
+        --input-border: #4a5568;
+        --code-bg: #1a202c;
+        --code-text: #e2e8f0;
+    }
+}
+
 /* Entire app background */
 body, [data-testid="stAppViewContainer"] {
-    background-color: #1A1F4A !important;
-    color: white !important;
+    background-color: var(--primary-bg) !important;
+    color: var(--primary-text) !important;
     font-family: "Segoe UI", "Helvetica Neue", sans-serif;
 }
 
-/* Title 'FRIDA' in black */
+/* Form styling with better visibility */
+form {
+    border: 2px solid var(--form-border) !important;
+    border-radius: 8px;
+    padding: 16px;
+    background-color: var(--primary-bg);
+    box-shadow: 0 2px 8px rgba(255, 145, 77, 0.2);
+}
+
+/* Title 'FRIDA' styling */
 h1, h1 span {
-    color: #ff914d !important;
+    color: var(--accent-color) !important;
 }
 
 /* Make subtitle (under FRIDA) white */
 h1 + span, h1 + div span {
-    color: white !important;
+    color: var(--primary-text) !important;
 }
 
-/* Make 'Your Session ID' white */
-[data-testid="stMarkdownContainer"] p strong, [data-testid="stMarkdownContainer"] code {
-    color: white !important;
+/* Session ID styling with high contrast */
+[data-testid="stMarkdownContainer"] p strong {
+    color: var(--primary-text) !important;
+    font-weight: 600;
 }
 
-/* Make "Start Your Conversation" white */
+/* Code block styling for session ID */
+[data-testid="stMarkdownContainer"] code {
+    background-color: var(--code-bg) !important;
+    color: var(--code-text) !important;
+    padding: 4px 8px !important;
+    border-radius: 4px !important;
+    border: 1px solid var(--accent-color) !important;
+    font-family: 'Courier New', monospace !important;
+    font-weight: 600 !important;
+}
+
+/* Make section headers white */
 h2, h3 {
-    color: white !important;
+    color: var(--primary-text) !important;
 }
 
-/* Chat bubbles */
+/* Chat bubbles with better contrast */
 div[style*="background-color: #dcf8c6"] {
-    background-color: #ff914d !important;
-    color: #1b1f4b !important;
+    background-color: var(--accent-color) !important;
+    color: var(--accent-text) !important;
     font-size: 16px;
     font-weight: 500;
 }
 div[style*="background-color: #f1f0f0"] {
     background-color: #ffffff !important;
-    color: #1b1f4b !important;
+    color: var(--accent-text) !important;
     font-size: 16px;
 }
 
-/* Text input box */
+/* Text input box with better visibility */
 textarea {
-    background-color: #ffffff !important;
-    color: #000000 !important;
+    background-color: var(--input-bg) !important;
+    color: var(--input-text) !important;
     font-size: 16px !important;
-    border: 1px solid #cccccc !important;
+    border: 2px solid var(--input-border) !important;
+    border-radius: 6px !important;
+    padding: 12px !important;
 }
 
-/* Button styling */
-.stButton>button {
-    background-color: #ff914d;
-    color: #1b1f4b;
-    font-weight: 600;
-    border: none;
-    border-radius: 6px;
+textarea:focus {
+    border-color: var(--accent-color) !important;
+    box-shadow: 0 0 0 2px rgba(255, 145, 77, 0.2) !important;
 }
+
+/* Button styling with enhanced visibility */
+.stButton>button {
+    background-color: var(--accent-color) !important;
+    color: var(--accent-text) !important;
+    font-weight: 600 !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 12px 24px !important;
+    font-size: 16px !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 4px rgba(255, 145, 77, 0.3) !important;
+}
+
 .stButton>button:hover {
-    background-color: #ffa86c;
-    color: #1b1f4b;
+    background-color: var(--accent-hover) !important;
+    color: var(--accent-text) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 8px rgba(255, 145, 77, 0.4) !important;
+}
+
+/* Form submit button specific styling */
+form .stButton>button {
+    background-color: var(--accent-color) !important;
+    color: var(--accent-text) !important;
+    font-weight: 700 !important;
+    border: 2px solid var(--accent-color) !important;
+    min-width: 100px !important;
+}
+
+form .stButton>button:hover {
+    background-color: var(--accent-hover) !important;
+    border-color: var(--accent-hover) !important;
+}
+
+/* Selectbox styling */
+div[data-testid="stSelectbox"] > div > div {
+    background-color: var(--input-bg) !important;
+    color: var(--input-text) !important;
+    border: 2px solid var(--input-border) !important;
+}
+
+/* Warning message styling */
+div[data-testid="stAlert"] {
+    background-color: #fef3c7 !important;
+    color: #92400e !important;
+    border: 1px solid #f59e0b !important;
+}
+
+/* Info message styling */
+div[data-testid="stInfo"] {
+    background-color: #dbeafe !important;
+    color: #1e40af !important;
+    border: 1px solid #3b82f6 !important;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    :root {
+        --input-border: #000000;
+        --code-bg: #000000;
+        --code-text: #ffffff;
+    }
+    
+    [data-testid="stMarkdownContainer"] code {
+        border-width: 2px !important;
+    }
+    
+    .stButton>button {
+        border: 2px solid var(--accent-text) !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
