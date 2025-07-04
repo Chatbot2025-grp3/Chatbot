@@ -70,43 +70,34 @@ st.set_page_config(page_title="FRIDA", layout="centered")
 
 st.markdown("""
 <style>
-/* Only target specific visibility issues */
+/* Fix Session ID visibility - dark background with light text */
 [data-testid="stMarkdownContainer"] code {
     background-color: #2d3748 !important;
     color: #e2e8f0 !important;
-    padding: 4px 8px !important;
-    border-radius: 4px !important;
-    border: 1px solid #ff914d !important;
+    padding: 6px 12px !important;
+    border-radius: 6px !important;
+    border: 2px solid #ff914d !important;
     font-family: 'Courier New', monospace !important;
-    font-weight: 600 !important;
+    font-weight: bold !important;
+    font-size: 14px !important;
 }
 
+/* Fix Send button visibility - orange background with dark text */
 .stButton > button {
     background-color: #ff914d !important;
-    color: #1b1f4b !important;
-    font-weight: 600 !important;
-    border: none !important;
-    border-radius: 6px !important;
-    padding: 12px 24px !important;
+    color: #ffffff !important;
+    font-weight: bold !important;
+    border: 2px solid #ff914d !important;
+    border-radius: 8px !important;
+    padding: 10px 20px !important;
     font-size: 16px !important;
+    min-height: 45px !important;
 }
 
 .stButton > button:hover {
-    background-color: #ffa86c !important;
-    color: #1b1f4b !important;
-}
-
-form .stButton > button {
-    background-color: #ff914d !important;
-    color: #1b1f4b !important;
-    font-weight: 700 !important;
-    border: 2px solid #ff914d !important;
-    min-width: 100px !important;
-}
-
-form .stButton > button:hover {
-    background-color: #ffa86c !important;
-    border-color: #ffa86c !important;
+    background-color: #e6821a !important;
+    color: #ffffff !important;
+    border-color: #e6821a !important;
 }
 </style>
 """, unsafe_allow_html=True)
