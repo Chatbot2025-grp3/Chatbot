@@ -68,39 +68,7 @@ def reset_session():
 
 st.set_page_config(page_title="FRIDA", layout="centered")
 
-st.markdown("""
-<style>
-/* Fix Session ID visibility - dark background with light text */
-[data-testid="stMarkdownContainer"] code {
-    background-color: #2d3748 !important;
-    color: #e2e8f0 !important;
-    padding: 6px 12px !important;
-    border-radius: 6px !important;
-    border: 2px solid #ff914d !important;
-    font-family: 'Courier New', monospace !important;
-    font-weight: bold !important;
-    font-size: 14px !important;
-}
 
-/* Fix Send button visibility - orange background with dark text */
-.stButton > button {
-    background-color: #ff914d !important;
-    color: #ffffff !important;
-    font-weight: bold !important;
-    border: 2px solid #ff914d !important;
-    border-radius: 8px !important;
-    padding: 10px 20px !important;
-    font-size: 16px !important;
-    min-height: 45px !important;
-}
-
-.stButton > button:hover {
-    background-color: #e6821a !important;
-    color: #ffffff !important;
-    border-color: #e6821a !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
 
 
@@ -131,7 +99,11 @@ if (
 
 # Language and region setup
 if not st.session_state["conversation_started"]:
-    st.markdown(f"**Your Session ID:** `{st.session_state['session_id']}`")
+    st.markdown(f"""
+    <div style='background-color: #f8f9fa; padding: 8px; border-radius: 5px; border-left: 4px solid #ff6b35; margin: 10px 0;'>
+        <strong>Your Session ID:</strong> <span style='background-color: #333; color: #fff; padding: 3px 8px; border-radius: 3px; font-family: monospace; font-weight: bold;'>{st.session_state['session_id']}</span>
+    </div>
+    """, unsafe_allow_html=True)
     st.subheader("🌐 Start Your Conversation")
 
     language = st.selectbox(
@@ -161,7 +133,11 @@ if not st.session_state["conversation_started"]:
 else:
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.markdown(f"**Your Session ID:** `{st.session_state['session_id']}`")
+        st.markdown(f"""
+        <div style='background-color: #f8f9fa; padding: 6px; border-radius: 5px; border-left: 4px solid #ff6b35;'>
+            <strong>Session ID:</strong> <span style='background-color: #333; color: #fff; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-weight: bold; font-size: 12px;'>{st.session_state['session_id']}</span>
+        </div>
+        """, unsafe_allow_html=True)
     with col2:
         new_lang = st.selectbox("🌐", ["English", "Deutsch"], index=0 if st.session_state["lang"] == "en" else 1, label_visibility="collapsed")
         new_lang_code = "en" if new_lang == "English" else "de"
@@ -253,8 +229,8 @@ else:
 
     if not st.session_state.get("chat_locked", False):
         with st.form(key="chat_form", clear_on_submit=True):
-            user_input = st.text_area("", height=80, key="user_input", disabled=False)
-            submit = st.form_submit_button("Send", on_click=send_message)
+            user_input = st.text_area("Type your message here...", height=80, key="user_input", disabled=False)
+            submit = st.form_submit_button("📤 SEND MESSAGE", on_click=send_message)
     else:
         st.info("🔒 The conversation has ended. Thank you for your message.")
 
