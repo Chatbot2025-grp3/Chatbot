@@ -29,10 +29,11 @@ def initialize_session():
         st.session_state["messages"] = []
     if "conversation_started" not in st.session_state:
         st.session_state["conversation_started"] = False
-    if "chat_locked" not in st.session_state:
-        st.session_state["chat_locked"] = False
-    if "post_final_allowed" not in st.session_state:
-        st.session_state["post_final_allowed"] = False
+    
+    # Always reset these to ensure new user doesn't inherit locked state
+    st.session_state["chat_locked"] = False
+    st.session_state["post_final_allowed"] = False
+    
     if "lang" not in st.session_state:
         st.session_state["lang"] = "en"
     if "region" not in st.session_state:
