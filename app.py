@@ -70,32 +70,7 @@ st.set_page_config(page_title="FRIDA", layout="centered")
 
 st.markdown("""
 <style>
-body, [data-testid="stAppViewContainer"] {
-    background-color: #1A1F4A !important;
-    color: white !important;
-    font-family: "Segoe UI", "Helvetica Neue", sans-serif;
-}
-
-form {
-    border: 2px solid #ff914d !important;
-    border-radius: 8px !important;
-    padding: 16px !important;
-    background-color: #1A1F4A !important;
-}
-
-h1, h1 span {
-    color: #ff914d !important;
-}
-
-h1 + span, h1 + div span {
-    color: white !important;
-}
-
-[data-testid="stMarkdownContainer"] p strong {
-    color: white !important;
-    font-weight: 600 !important;
-}
-
+/* Only target specific visibility issues */
 [data-testid="stMarkdownContainer"] code {
     background-color: #2d3748 !important;
     color: #e2e8f0 !important;
@@ -104,36 +79,6 @@ h1 + span, h1 + div span {
     border: 1px solid #ff914d !important;
     font-family: 'Courier New', monospace !important;
     font-weight: 600 !important;
-}
-
-h2, h3 {
-    color: white !important;
-}
-
-div[style*="background-color: #dcf8c6"] {
-    background-color: #ff914d !important;
-    color: #1b1f4b !important;
-    font-size: 16px !important;
-    font-weight: 500 !important;
-}
-
-div[style*="background-color: #f1f0f0"] {
-    background-color: #ffffff !important;
-    color: #1b1f4b !important;
-    font-size: 16px !important;
-}
-
-textarea {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-    font-size: 16px !important;
-    border: 2px solid #cccccc !important;
-    border-radius: 6px !important;
-    padding: 12px !important;
-}
-
-textarea:focus {
-    border-color: #ff914d !important;
 }
 
 .stButton > button {
