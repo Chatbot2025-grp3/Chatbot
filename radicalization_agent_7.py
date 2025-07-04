@@ -790,6 +790,51 @@ class RadicalizationBot:
         return response  
         # Additional utility functions and main execution logic
 
+    def cleanup_session(self):
+        """Clean up session resources and log final state"""
+        try:
+            # Log final session state
+            final_log = {
+                "session_id": self.session_id,
+                "session_end_time": datetime.now(timezone.utc).isoformat(),
+                "session_duration": str(datetime.now(timezone.utc) - self.session_start_time),
+                "total_exchanges": self.conversation_depth,
+                "observed_flags": self.observed_flags,
+                "conversation_concluded": self.conversation_concluded,
+                "language": self.language,
+                "region": self.region,
+                "session_type": "cleanup"
+            }
+            
+            with open(self.log_file, "a", encoding="utf-8") as f:  # APPEND mode - never overwrites
+                f.write(json.dumps(final_log) + "\n")
+                
+            print(f"[SESSION CLEANUP] {self.session_id} - Duration: {datetime.now(timezone.utc) - self.session_start_time}")
+            
+        except Exception as e:
+            print(f"[SESSION CLEANUP ERROR] {e}")
+
+    def is_session_expired(self, max_duration_hours=2):
+        """Check if session has expired"""
+        current_time = datetime.now(timezone.utc)
+        session_duration = current_time - self.session_start_time
+        return session_duration.total_seconds() > (max_duration_hours * 3600)
+
+    def get_session_analytics(self):
+        """Get session analytics for monitoring"""
+        current_time = datetime.now(timezone.utc)
+        session_duration = current_time - self.session_start_time
+        
+        return {
+            "session_id": self.session_id,
+            "duration_minutes": round(session_duration.total_seconds() / 60, 2),
+            "exchanges": self.conversation_depth,
+            "risk_flags": len(self.observed_flags),
+            "language": self.language,
+            "region": self.region,
+            "concluded": self.conversation_concluded
+        }
+
 def run_bot_session():
     """Main function to run the bot session"""
     print("🤖 Radicalization Support Bot Starting...")

@@ -40,14 +40,6 @@ def chat_with_bot(payload: Message):
             content={"error": str(e)}
         )
 
-@app.post("/reset")
-def reset_session(payload: Message):
-    """Reset and delete the session data on backend."""
-    if payload.session_id in sessions:
-        del sessions[payload.session_id]
-    return {"status": "session reset"}
-
-
 if __name__ == "__main__":
     print("Starting FastAPI server...")
     uvicorn.run(app, host="0.0.0.0", port=8000)

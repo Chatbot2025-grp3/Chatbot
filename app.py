@@ -20,6 +20,50 @@ REGIONS = {
         "Sachsen-Anhalt", "Schleswig-Holstein", "Thüringen"
     ]
 }
+# Enhanced session initialization
+def initialize_session():
+    """Initialize all session state variables"""
+    if "session_id" not in st.session_state:
+        st.session_state["session_id"] = str(uuid.uuid4())
+    if "messages" not in st.session_state:
+        st.session_state["messages"] = []
+    if "conversation_started" not in st.session_state:
+        st.session_state["conversation_started"] = False
+    if "chat_locked" not in st.session_state:
+        st.session_state["chat_locked"] = False
+    if "post_final_allowed" not in st.session_state:
+        st.session_state["post_final_allowed"] = False
+    if "lang" not in st.session_state:
+        st.session_state["lang"] = "en"
+    if "region" not in st.session_state:
+        st.session_state["region"] = ""
+    if "session_ended" not in st.session_state:
+        st.session_state["session_ended"] = False
+
+def reset_session():
+    """Completely reset session state for new user"""
+    old_session_id = st.session_state.get("session_id")
+    
+    # Call backend to clean up old session
+    if old_session_id:
+        try:
+            API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost")
+            API_PORT = os.environ.get("API_PORT", "8001")
+
+            if "localhost" in API_BASE_URL or "127.0.0.1" in API_BASE_URL:
+                API_URL = f"{API_BASE_URL}:8000"
+            else:
+                API_URL = f"{API_BASE_URL}:{API_PORT}"
+            
+            requests.post(f"{API_URL}/end_session", json={"session_id": old_session_id}, timeout=5)
+            print(f"[FRONTEND] Cleaned up backend session: {old_session_id}")
+        except Exception as e:
+            print(f"[FRONTEND WARNING] Could not clean up backend session: {e}")
+    
+    # Reset all session state
+    st.session_state.clear()
+    initialize_session()
+    print(f"[FRONTEND] Session reset. New session ID: {st.session_state['session_id']}")
 
 st.set_page_config(page_title="FRIDA", layout="centered")
 
@@ -112,22 +156,8 @@ st.markdown("""
 #st.markdown("<div style='font-size: 18px; color: green;'>Radikalisierung früh erkennen und Hilfe anbieten.</div>", unsafe_allow_html=True)
 st.markdown("<div style='font-size: 17px; color: gray;'>FRIDA - Früherkennung von Radikalisierung, Identifikation und Direkte Assistenz </div>", unsafe_allow_html=True)
 
-
-# Session initialization
-if "session_id" not in st.session_state:
-    st.session_state["session_id"] = str(uuid.uuid4())
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-if "conversation_started" not in st.session_state:
-    st.session_state["conversation_started"] = False
-if "chat_locked" not in st.session_state:
-    st.session_state["chat_locked"] = False
-if "post_final_allowed" not in st.session_state:
-    st.session_state["post_final_allowed"] = False
-if "lang" not in st.session_state:
-    st.session_state["lang"] = "en"
-if "region" not in st.session_state:
-    st.session_state["region"] = ""
+# Initialize session
+initialize_session()
 
 if (
     not st.session_state["conversation_started"]
@@ -275,21 +305,24 @@ else:
 
     # End Conversation button
     if st.button("End Conversation"):
-        # Call API to reset backend session first:
-        try:
-            requests.post(API_URL.replace("/chat", "/reset"), json={
-                "session_id": st.session_state["session_id"],
-                "message": "",
-                "lang": st.session_state["lang"],
-                "region": st.session_state["region"]
-            })
-        except Exception as e:
-            st.warning(f"⚠️ Failed to reset backend session: {e}")
-
-        # Then reset frontend session
+        # Clean up backend session FIRST
+        old_session_id = st.session_state.get("session_id")
+        if old_session_id:
+            try:
+                API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost")
+                API_PORT = os.environ.get("API_PORT", "8001")
+                if "localhost" in API_BASE_URL or "127.0.0.1" in API_BASE_URL:
+                    API_URL = f"{API_BASE_URL}:8000"
+                else:
+                    API_URL = f"{API_BASE_URL}:{API_PORT}"
+                
+                requests.post(f"{API_URL}/end_session", json={"session_id": old_session_id}, timeout=5)
+            except Exception as e:
+                print(f"Backend cleanup failed: {e}")
+        
+        # Then reset frontend
         st.session_state["conversation_started"] = False
         st.session_state["region"] = ""
         st.session_state["messages"] = []
         st.session_state["session_id"] = str(uuid.uuid4())
         st.rerun()
-
