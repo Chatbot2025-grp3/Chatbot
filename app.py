@@ -20,6 +20,7 @@ REGIONS = {
         "Sachsen-Anhalt", "Schleswig-Holstein", "Thüringen"
     ]
 }
+
 # Enhanced session initialization
 def initialize_session():
     """Initialize all session state variables"""
@@ -66,12 +67,10 @@ def reset_session():
     initialize_session()
     print(f"[FRONTEND] Session reset. New session ID: {st.session_state['session_id']}")
 
+# Configure the page
 st.set_page_config(page_title="FRIDA", layout="centered")
 
-
-
-
-
+# Display the main header
 st.markdown("""
 <div style='display: flex; align-items: center; gap: 20px;'>
   <h1 style='margin: 0; font-size: 62px;'>👧 FRIDA</h1>
@@ -81,14 +80,13 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-
-
-#st.markdown("<div style='font-size: 18px; color: green;'>Radikalisierung früh erkennen und Hilfe anbieten.</div>", unsafe_allow_html=True)
+# Display the subtitle
 st.markdown("<div style='font-size: 17px; color: gray;'>FRIDA - Früherkennung von Radikalisierung, Identifikation und Direkte Assistenz </div>", unsafe_allow_html=True)
 
 # Initialize session
 initialize_session()
 
+# Check if conversation should start automatically
 if (
     not st.session_state["conversation_started"]
     and st.session_state["lang"] is not None
@@ -96,16 +94,18 @@ if (
 ):
     st.session_state["conversation_started"] = True
 
-
-# Language and region setup
+# Language and region setup (before conversation starts)
 if not st.session_state["conversation_started"]:
+    # Display Session ID with improved visibility
     st.markdown(f"""
     <div style='background-color: #f8f9fa; padding: 8px; border-radius: 5px; border-left: 4px solid #ff6b35; margin: 10px 0;'>
         <strong>Your Session ID:</strong> <span style='background-color: #333; color: #fff; padding: 3px 8px; border-radius: 3px; font-family: monospace; font-weight: bold;'>{st.session_state['session_id']}</span>
     </div>
     """, unsafe_allow_html=True)
+    
     st.subheader("🌐 Start Your Conversation")
 
+    # Language selection
     language = st.selectbox(
         "Choose Language / Sprache wählen:",
         ["English", "Deutsch"],
@@ -114,6 +114,7 @@ if not st.session_state["conversation_started"]:
     )
     lang_code = "en" if language == "English" else "de"
 
+    # Region selection
     region = st.selectbox(
         "📍 Choose your Region:" if lang_code == "en" else "📍 Wähle deine Region:",
         REGIONS[lang_code],
@@ -121,31 +122,37 @@ if not st.session_state["conversation_started"]:
         key="region_select"
     )
 
+    # Show warning if no region selected
     if region == REGIONS[lang_code][0]:
         st.warning("Please select a valid region before proceeding." if lang_code == "en" else "Bitte wähle eine gültige Region aus.")
     else:
+        # Confirm button to start conversation
         if st.button("✅ Confirm"):
             st.session_state["lang"] = lang_code
             st.session_state["region"] = region
             st.session_state["conversation_started"] = True
             st.rerun()
 
+# Main conversation interface (after setup is complete)
 else:
+    # Top bar with Session ID and language switcher
     col1, col2 = st.columns([3, 1])
     with col1:
+        # Display Session ID with improved visibility (compact version)
         st.markdown(f"""
         <div style='background-color: #f8f9fa; padding: 6px; border-radius: 5px; border-left: 4px solid #ff6b35;'>
             <strong>Session ID:</strong> <span style='background-color: #333; color: #fff; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-weight: bold; font-size: 12px;'>{st.session_state['session_id']}</span>
         </div>
         """, unsafe_allow_html=True)
     with col2:
+        # Language switcher
         new_lang = st.selectbox("🌐", ["English", "Deutsch"], index=0 if st.session_state["lang"] == "en" else 1, label_visibility="collapsed")
         new_lang_code = "en" if new_lang == "English" else "de"
         if new_lang_code != st.session_state["lang"]:
             st.session_state["lang"] = new_lang_code
             st.session_state["messages"].append(("bot", f"🌐 Language has been changed to {'English' if new_lang_code == 'en' else 'Deutsch'}."))
 
-    # 🔧 Get API URL from environment
+    # Get API URL from environment variables
     API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost")
     API_PORT = os.environ.get("API_PORT", "8001")
 
@@ -154,7 +161,7 @@ else:
     else:
         API_URL = f"{API_BASE_URL}:{API_PORT}/chat"
     
-
+    # Function to handle sending messages
     def send_message():
         user_text = st.session_state["user_input"].strip()
         if user_text:
@@ -182,18 +189,17 @@ else:
                 st.error(f"Backend error: {e}")
             st.session_state["user_input"] = ""
 
+    # Display welcome message
     st.markdown("""
     💬 Hi, I am FRIDA, here to assist you in investigating any concerns you may have regarding someone exhibiting early indications of radicalization, particularly in the direction of right-wing extremism. I am a sympathetic, anonymous, and nonjudgmental bot.
     """ if st.session_state["lang"] == "en" else """
     💬 Hallo, ich bin FRIDA und bin hier, um Ihnen bei der Untersuchung von Bedenken zu helfen, die Sie möglicherweise hinsichtlich einer Person haben, die erste Anzeichen einer Radikalisierung zeigt, insbesondere in Richtung Rechtsextremismus. Ich bin ein einfühlsamer, anonymer und vorurteilsfreier Bot.
     """)
     
-    #border: 3px solid #e63946;
-
-    
-    
+    # Display chat messages
     for sender, msg in st.session_state["messages"]:
         if sender == "user":
+            # User message (right side)
             st.markdown(f"""
             <div style='display: flex; justify-content: flex-end; margin: 10px 0;'>
                 <div style='
@@ -209,6 +215,7 @@ else:
             </div>
             """, unsafe_allow_html=True)
         else:
+            # Bot message (left side)
             st.markdown(f"""
             <div style='display: flex; justify-content: flex-start; margin: 10px 0;'>
                 <img src='https://img.icons8.com/3d-fluency/94/technical-support--v3.png' style='margin-right: 8px; width: 32px; height: 32px;' />
@@ -224,16 +231,13 @@ else:
             </div>
             """, unsafe_allow_html=True)
 
-
-    #st.markdown("</div>", unsafe_allow_html=True)
-
+    # Chat input form (if conversation is not locked)
     if not st.session_state.get("chat_locked", False):
         with st.form(key="chat_form", clear_on_submit=True):
             user_input = st.text_area("Type your message here...", height=80, key="user_input", disabled=False)
             submit = st.form_submit_button("📤 SEND MESSAGE", on_click=send_message)
     else:
         st.info("🔒 The conversation has ended. Thank you for your message.")
-
 
     # End Conversation button
     if st.button("End Conversation"):
