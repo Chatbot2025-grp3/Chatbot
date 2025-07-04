@@ -70,39 +70,32 @@ st.set_page_config(page_title="FRIDA", layout="centered")
 
 st.markdown("""
 <style>
-/* Entire app background */
 body, [data-testid="stAppViewContainer"] {
     background-color: #1A1F4A !important;
     color: white !important;
     font-family: "Segoe UI", "Helvetica Neue", sans-serif;
 }
 
-/* Form styling with better visibility */
 form {
     border: 2px solid #ff914d !important;
     border-radius: 8px !important;
     padding: 16px !important;
     background-color: #1A1F4A !important;
-    box-shadow: 0 2px 8px rgba(255, 145, 77, 0.2) !important;
 }
 
-/* Title FRIDA styling */
 h1, h1 span {
     color: #ff914d !important;
 }
 
-/* Make subtitle white */
 h1 + span, h1 + div span {
     color: white !important;
 }
 
-/* Session ID styling with high contrast */
 [data-testid="stMarkdownContainer"] p strong {
     color: white !important;
     font-weight: 600 !important;
 }
 
-/* Code block styling for session ID */
 [data-testid="stMarkdownContainer"] code {
     background-color: #2d3748 !important;
     color: #e2e8f0 !important;
@@ -113,12 +106,10 @@ h1 + span, h1 + div span {
     font-weight: 600 !important;
 }
 
-/* Make section headers white */
 h2, h3 {
     color: white !important;
 }
 
-/* Chat bubbles */
 div[style*="background-color: #dcf8c6"] {
     background-color: #ff914d !important;
     color: #1b1f4b !important;
@@ -132,7 +123,6 @@ div[style*="background-color: #f1f0f0"] {
     font-size: 16px !important;
 }
 
-/* Text input box with better visibility */
 textarea {
     background-color: #ffffff !important;
     color: #000000 !important;
@@ -144,10 +134,8 @@ textarea {
 
 textarea:focus {
     border-color: #ff914d !important;
-    box-shadow: 0 0 0 2px rgba(255, 145, 77, 0.2) !important;
 }
 
-/* Button styling with enhanced visibility */
 .stButton > button {
     background-color: #ff914d !important;
     color: #1b1f4b !important;
@@ -156,16 +144,13 @@ textarea:focus {
     border-radius: 6px !important;
     padding: 12px 24px !important;
     font-size: 16px !important;
-    box-shadow: 0 2px 4px rgba(255, 145, 77, 0.3) !important;
 }
 
 .stButton > button:hover {
     background-color: #ffa86c !important;
     color: #1b1f4b !important;
-    box-shadow: 0 4px 8px rgba(255, 145, 77, 0.4) !important;
 }
 
-/* Form submit button specific styling */
 form .stButton > button {
     background-color: #ff914d !important;
     color: #1b1f4b !important;
@@ -177,27 +162,6 @@ form .stButton > button {
 form .stButton > button:hover {
     background-color: #ffa86c !important;
     border-color: #ffa86c !important;
-}
-
-/* Selectbox styling */
-div[data-testid="stSelectbox"] > div > div {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-    border: 2px solid #cccccc !important;
-}
-
-/* Warning message styling */
-div[data-testid="stAlert"] {
-    background-color: #fef3c7 !important;
-    color: #92400e !important;
-    border: 1px solid #f59e0b !important;
-}
-
-/* Info message styling */
-div[data-testid="stInfo"] {
-    background-color: #dbeafe !important;
-    color: #1e40af !important;
-    border: 1px solid #3b82f6 !important;
 }
 </style>
 """, unsafe_allow_html=True)
