@@ -234,19 +234,13 @@ else:
                     bot_reply = response["reply"]
                     st.session_state["messages"].append(("bot", bot_reply))
 
-                    # Check for final message marker
-                    FINAL_MARKERS = [
-                        "you did the right thing by not looking away",
-                        "du hast das richtige getan, indem du nicht weggeschaut hast"
-                    ]
-                    lower_reply = bot_reply.lower()
-                    if any(marker in lower_reply for marker in FINAL_MARKERS):
+                    # Check if backend says conversation is concluded
+                    if response.get("conversation_concluded", False):
                         st.session_state["post_final_allowed"] = True
 
                     # Lock after user sends their one allowed post-final message
                     elif st.session_state.get("post_final_allowed") and not st.session_state.get("chat_locked"):
                         st.session_state["chat_locked"] = True
-
             except Exception as e:
                 st.error(f"Backend error: {e}")
             st.session_state["user_input"] = ""

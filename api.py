@@ -14,6 +14,9 @@ class Message(BaseModel):
     lang: str
     region: str
 
+class SessionEnd(BaseModel):
+    session_id: str
+
 @app.post("/chat")
 def chat_with_bot(payload: Message):
    
@@ -33,12 +36,21 @@ def chat_with_bot(payload: Message):
             print(f"[API WARNING] Updated region '{payload.region}' invalid, keeping previous")
 
         reply = agent.get_response(payload.message)
-        return {"reply": reply}
+        return {
+            "reply": reply,
+            "conversation_concluded": agent.conversation_concluded  # Add this flag
+        }
     except Exception as e:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"error": str(e)}
         )
+    
+@app.post("/end_session")
+def end_session(payload: SessionEnd):
+    """End a session and clean up backend memory"""
+    if payload.session_id in sessions:
+        del sessions[payload.session_id]  # Remove from memory
 
 if __name__ == "__main__":
     print("Starting FastAPI server...")
