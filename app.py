@@ -70,147 +70,120 @@ st.set_page_config(page_title="FRIDA", layout="centered")
 
 st.markdown("""
 <style>
-/* CSS Custom Properties for theme adaptation */
-:root {
-    --primary-bg: #1A1F4A;
-    --primary-text: #ffffff;
-    --accent-color: #ff914d;
-    --accent-hover: #ffa86c;
-    --accent-text: #1b1f4b;
-    --input-bg: #ffffff;
-    --input-text: #000000;
-    --input-border: #cccccc;
-    --code-bg: #2d3748;
-    --code-text: #e2e8f0;
-    --form-border: #ff914d;
-}
-
-/* Dark mode media query for system preference */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --input-bg: #2d3748;
-        --input-text: #e2e8f0;
-        --input-border: #4a5568;
-        --code-bg: #1a202c;
-        --code-text: #e2e8f0;
-    }
-}
-
 /* Entire app background */
 body, [data-testid="stAppViewContainer"] {
-    background-color: var(--primary-bg) !important;
-    color: var(--primary-text) !important;
+    background-color: #1A1F4A !important;
+    color: white !important;
     font-family: "Segoe UI", "Helvetica Neue", sans-serif;
 }
 
 /* Form styling with better visibility */
 form {
-    border: 2px solid var(--form-border) !important;
-    border-radius: 8px;
-    padding: 16px;
-    background-color: var(--primary-bg);
-    box-shadow: 0 2px 8px rgba(255, 145, 77, 0.2);
+    border: 2px solid #ff914d !important;
+    border-radius: 8px !important;
+    padding: 16px !important;
+    background-color: #1A1F4A !important;
+    box-shadow: 0 2px 8px rgba(255, 145, 77, 0.2) !important;
 }
 
-/* Title 'FRIDA' styling */
+/* Title FRIDA styling */
 h1, h1 span {
-    color: var(--accent-color) !important;
+    color: #ff914d !important;
 }
 
-/* Make subtitle (under FRIDA) white */
+/* Make subtitle white */
 h1 + span, h1 + div span {
-    color: var(--primary-text) !important;
+    color: white !important;
 }
 
 /* Session ID styling with high contrast */
 [data-testid="stMarkdownContainer"] p strong {
-    color: var(--primary-text) !important;
-    font-weight: 600;
+    color: white !important;
+    font-weight: 600 !important;
 }
 
 /* Code block styling for session ID */
 [data-testid="stMarkdownContainer"] code {
-    background-color: var(--code-bg) !important;
-    color: var(--code-text) !important;
+    background-color: #2d3748 !important;
+    color: #e2e8f0 !important;
     padding: 4px 8px !important;
     border-radius: 4px !important;
-    border: 1px solid var(--accent-color) !important;
+    border: 1px solid #ff914d !important;
     font-family: 'Courier New', monospace !important;
     font-weight: 600 !important;
 }
 
 /* Make section headers white */
 h2, h3 {
-    color: var(--primary-text) !important;
+    color: white !important;
 }
 
-/* Chat bubbles with better contrast */
+/* Chat bubbles */
 div[style*="background-color: #dcf8c6"] {
-    background-color: var(--accent-color) !important;
-    color: var(--accent-text) !important;
-    font-size: 16px;
-    font-weight: 500;
+    background-color: #ff914d !important;
+    color: #1b1f4b !important;
+    font-size: 16px !important;
+    font-weight: 500 !important;
 }
+
 div[style*="background-color: #f1f0f0"] {
     background-color: #ffffff !important;
-    color: var(--accent-text) !important;
-    font-size: 16px;
+    color: #1b1f4b !important;
+    font-size: 16px !important;
 }
 
 /* Text input box with better visibility */
 textarea {
-    background-color: var(--input-bg) !important;
-    color: var(--input-text) !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
     font-size: 16px !important;
-    border: 2px solid var(--input-border) !important;
+    border: 2px solid #cccccc !important;
     border-radius: 6px !important;
     padding: 12px !important;
 }
 
 textarea:focus {
-    border-color: var(--accent-color) !important;
+    border-color: #ff914d !important;
     box-shadow: 0 0 0 2px rgba(255, 145, 77, 0.2) !important;
 }
 
 /* Button styling with enhanced visibility */
-.stButton>button {
-    background-color: var(--accent-color) !important;
-    color: var(--accent-text) !important;
+.stButton > button {
+    background-color: #ff914d !important;
+    color: #1b1f4b !important;
     font-weight: 600 !important;
     border: none !important;
     border-radius: 6px !important;
     padding: 12px 24px !important;
     font-size: 16px !important;
-    transition: all 0.2s ease !important;
     box-shadow: 0 2px 4px rgba(255, 145, 77, 0.3) !important;
 }
 
-.stButton>button:hover {
-    background-color: var(--accent-hover) !important;
-    color: var(--accent-text) !important;
-    transform: translateY(-1px) !important;
+.stButton > button:hover {
+    background-color: #ffa86c !important;
+    color: #1b1f4b !important;
     box-shadow: 0 4px 8px rgba(255, 145, 77, 0.4) !important;
 }
 
 /* Form submit button specific styling */
-form .stButton>button {
-    background-color: var(--accent-color) !important;
-    color: var(--accent-text) !important;
+form .stButton > button {
+    background-color: #ff914d !important;
+    color: #1b1f4b !important;
     font-weight: 700 !important;
-    border: 2px solid var(--accent-color) !important;
+    border: 2px solid #ff914d !important;
     min-width: 100px !important;
 }
 
-form .stButton>button:hover {
-    background-color: var(--accent-hover) !important;
-    border-color: var(--accent-hover) !important;
+form .stButton > button:hover {
+    background-color: #ffa86c !important;
+    border-color: #ffa86c !important;
 }
 
 /* Selectbox styling */
 div[data-testid="stSelectbox"] > div > div {
-    background-color: var(--input-bg) !important;
-    color: var(--input-text) !important;
-    border: 2px solid var(--input-border) !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border: 2px solid #cccccc !important;
 }
 
 /* Warning message styling */
@@ -225,23 +198,6 @@ div[data-testid="stInfo"] {
     background-color: #dbeafe !important;
     color: #1e40af !important;
     border: 1px solid #3b82f6 !important;
-}
-
-/* High contrast mode support */
-@media (prefers-contrast: high) {
-    :root {
-        --input-border: #000000;
-        --code-bg: #000000;
-        --code-text: #ffffff;
-    }
-    
-    [data-testid="stMarkdownContainer"] code {
-        border-width: 2px !important;
-    }
-    
-    .stButton>button {
-        border: 2px solid var(--accent-text) !important;
-    }
 }
 </style>
 """, unsafe_allow_html=True)
